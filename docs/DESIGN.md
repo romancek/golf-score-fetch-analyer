@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     output_dir: str = "output"
     debug_mode: bool = False
     headless: bool = True
-    
+
     class Config:
         env_file = ".env"
 ```
@@ -91,13 +91,13 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Selectors:
     """GDOスコアページのCSSセレクタ定義"""
-    
+
     # ログインページ
     LOGIN_BUTTON: str = "a.button--login"
     USERNAME_INPUT: str = "input[name='username']"
     PASSWORD_INPUT: str = "input[name='password']"
     SUBMIT_BUTTON: str = ".parts_submit_btn input[type='image']"
-    
+
     # スコア詳細ページ
     DATE: str = ".score__detail__place__info > p"
     GOLF_PLACE_NAME: str = ".score__detail__place__info > a"
@@ -130,7 +130,7 @@ def create_browser(headless: bool = True, debug_mode: bool = False):
         )
         if debug_mode:
             context.tracing.start(screenshots=True, snapshots=True)
-        
+
         page = context.new_page()
         try:
             yield page
@@ -157,18 +157,18 @@ from .config import Settings
 def login(page: Page, settings: Settings) -> bool:
     """GDOサイトにログインする"""
     page.goto("https://score.golfdigest.co.jp/")
-    
+
     # モーダルが表示された場合は閉じる
     _close_modal_if_exists(page)
-    
+
     # ログインボタンをクリック
     page.click(Selectors.LOGIN_BUTTON)
-    
+
     # 認証情報入力
     page.fill(Selectors.USERNAME_INPUT, settings.gdo_login_id)
     page.fill(Selectors.PASSWORD_INPUT, settings.gdo_password)
     page.click(Selectors.SUBMIT_BUTTON)
-    
+
     # ログイン成功確認
     return _verify_login(page)
 ```
@@ -189,29 +189,29 @@ from .selectors import Selectors
 
 class ScoreScraper:
     """スコアページからデータを抽出するクラス"""
-    
+
     def __init__(self, page: Page, debug_mode: bool = False):
         self.page = page
         self.debug_mode = debug_mode
-    
+
     def scrape_all_scores(self) -> list[ScoreData]:
         """すべてのスコアを取得"""
         scores = []
         page_num = 1
-        
+
         while True:
             url = f"https://score.golfdigest.co.jp/member/score_detail.asp?pg={page_num}"
             self.page.goto(url)
-            
+
             if not self._has_score_data():
                 break
-            
+
             score = self._extract_score_data()
             scores.append(score)
             page_num += 1
-        
+
         return scores
-    
+
     def _extract_score_data(self) -> ScoreData:
         """1ページからスコアデータを抽出"""
         return ScoreData(
@@ -221,7 +221,7 @@ class ScoreScraper:
             golf_place_name=self._get_golf_place_name(),
             # ... 他のフィールド
         )
-    
+
     def _get_text(self, selector: str, timeout: int = 5000) -> str:
         """セレクタからテキストを取得（エラーハンドリング付き）"""
         try:
@@ -269,7 +269,7 @@ class ScoreData:
     penaltys: List[str] = field(default_factory=list)
     accompany_member_names: List[str] = field(default_factory=list)
     accompany_member_scores: List[List[str]] = field(default_factory=list)
-    
+
     def to_dict(self) -> dict:
         """辞書形式に変換（JSON出力用）"""
         return asdict(self)
@@ -298,15 +298,15 @@ def save_scores_to_json(
     """スコアデータをJSONファイルに保存"""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = output_path / f"scores_{timestamp}.json"
-    
+
     data = [score.to_dict() for score in scores]
-    
+
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    
+
     return filename
 ```
 
@@ -328,9 +328,9 @@ def main():
     parser.add_argument("--debug", action="store_true", help="デバッグモードを有効化")
     parser.add_argument("--no-headless", action="store_true", help="ブラウザを表示")
     args = parser.parse_args()
-    
+
     settings = Settings()
-    
+
     with create_browser(
         headless=not args.no_headless,
         debug_mode=args.debug
@@ -338,13 +338,13 @@ def main():
         if not login(page, settings):
             logging.error("ログインに失敗しました")
             return 1
-        
+
         scraper = ScoreScraper(page, debug_mode=args.debug)
         scores = scraper.scrape_all_scores()
-        
+
         output_file = save_scores_to_json(scores, settings.output_dir)
         logging.info(f"保存完了: {output_file}")
-    
+
     return 0
 
 if __name__ == "__main__":
@@ -372,14 +372,14 @@ def _save_debug_info(self, context: str) -> None:
     """デバッグ情報を自動保存"""
     if not self.debug_mode:
         return
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # スクリーンショット
     self.page.screenshot(
         path=f"debug/screenshots/{context}_{timestamp}.png"
     )
-    
+
     # HTML保存
     with open(f"debug/html/{context}_{timestamp}.html", "w") as f:
         f.write(self.page.content())

@@ -178,7 +178,7 @@ debug/
    ```python
    # 古いセレクタ
    DATE: str = ".score__detail__place__info > p"
-   
+
    # 新しいセレクタ（変更があった場合）
    DATE: str = ".play-date-info > span"
    ```

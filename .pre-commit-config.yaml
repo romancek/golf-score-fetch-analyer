@@ -13,11 +13,8 @@ repos:
       # フォーマッター
       - id: ruff-format
 
-  # ty - 型チェック
-  - repo: https://github.com/astral-sh/ty
-    rev: 0.0.13
-    hooks:
-      - id: ty
+  # NOTE: ty（型チェッカー）はまだpre-commit hookをサポートしていません
+  # 手動で実行: uv run ty check src/
 
   # 一般的なフック
   - repo: https://github.com/pre-commit/pre-commit-hooks
