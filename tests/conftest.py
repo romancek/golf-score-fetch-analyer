@@ -1,0 +1,67 @@
+"""pytestフィクスチャ設定"""
+
+import pytest
+
+from gdo_score.models import ScoreData
+
+
+@pytest.fixture
+def sample_score_data() -> ScoreData:
+    """サンプルスコアデータのフィクスチャ"""
+    return ScoreData(
+        year="2025",
+        month="04",
+        day="28",
+        golf_place_name="箱根くらかけゴルフ場",
+        course_former_half="OUT",
+        course_latter_half="IN",
+        prefecture="神奈川県",
+        weather="曇り",
+        wind="中",
+        green="ベント",
+        tee="REGULAR",
+        hall_scores=[
+            "7", "5", "3", "6", "5", "7", "4", "6", "7",
+            "4", "5", "4", "4", "5", "6", "4", "5", "8",
+        ],
+        putt_scores=[
+            "2", "1", "2", "2", "2", "3", "2", "1", "2",
+            "1", "2", "2", "1", "2", "3", "1", "2", "3",
+        ],
+        teeshots=[
+            "1W", "1W", "8i", "5i", "1W", "5i", "8i", "1W", "1W",
+            "1W", "1W", "8i", "1W", "1W", "1W", "1W", "7i", "1W",
+        ],
+        fairway_keeps=[
+            "is-right", "is-left", "-", "is-keep", "is-keep",
+            "is-keep", "-", "is-keep", "is-right",
+            "is-left", "is-keep", "-", "is-keep", "is-keep",
+            "is-keep", "is-keep", "-", "is-left",
+        ],
+        oneons=[
+            "-", "-", "is-ok", "-", "-", "-", "-", "-", "-",
+            "-", "-", "is-ok", "-", "-", "-", "-", "-", "-",
+        ],
+        obs=["", "1", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        bunkers=["", "", "", "", "", "", "", "", "", "", "", "", "", "1", "", "", "", "2"],
+        penaltys=["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        accompany_member_names=["田中 太郎", "鈴木 一郎", "佐藤 花子"],
+        accompany_member_scores=[
+            ["6", "6", "3", "5", "6", "6", "5", "5", "7", "7", "6", "3", "6", "6", "7", "6", "6", "7"],
+            ["5", "5", "4", "5", "5", "5", "4", "5", "6", "5", "5", "3", "5", "5", "5", "5", "4", "6"],
+            ["6", "5", "3", "5", "5", "6", "4", "5", "6", "5", "5", "4", "5", "5", "6", "5", "5", "6"],
+        ],
+    )
+
+
+@pytest.fixture
+def sample_score_data_minimal() -> ScoreData:
+    """最小限のスコアデータのフィクスチャ"""
+    return ScoreData(
+        year="2025",
+        month="01",
+        day="01",
+        golf_place_name="テストゴルフ場",
+        course_former_half="OUT",
+        course_latter_half="IN",
+    )
