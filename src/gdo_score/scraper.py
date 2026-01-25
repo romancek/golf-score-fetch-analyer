@@ -5,9 +5,16 @@ GDOスコアページからスコアデータを抽出する。
 
 import logging
 import re
+import time
 
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from .browser import save_html, save_screenshot
 from .config import Settings
@@ -19,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 class ScraperError(Exception):
     """スクレイピング失敗時の例外"""
+
+    pass
+
+
+class TooManyErrorsError(ScraperError):
+    """連続エラー回数超過時の例外"""
 
     pass
 
@@ -46,20 +59,60 @@ class ScoreScraper:
         """
         self.page = page
         self.settings = settings
+        self._consecutive_errors = 0
+
+    def _wait_between_requests(self) -> None:
+        """リクエスト間の待機(DDoS対策)"""
+        interval = self.settings.request_interval
+        if interval > 0:
+            logger.debug("リクエスト間隔: %.1f秒待機", interval)
+            time.sleep(interval)
+
+    def _check_consecutive_errors(self) -> None:
+        """連続エラー回数をチェックし、上限超過時は例外を発生させる"""
+        if self._consecutive_errors >= self.settings.max_consecutive_errors:
+            raise TooManyErrorsError(
+                f"連続エラーが{self.settings.max_consecutive_errors}回を超えました。"
+                "サーバーに問題がある可能性があります。処理を中断します。"
+            )
+
+    def _reset_consecutive_errors(self) -> None:
+        """連続エラーカウンタをリセット"""
+        self._consecutive_errors = 0
+
+    def _increment_consecutive_errors(self) -> None:
+        """連続エラーカウンタをインクリメント"""
+        self._consecutive_errors += 1
+        logger.warning(
+            "連続エラー: %d/%d",
+            self._consecutive_errors,
+            self.settings.max_consecutive_errors,
+        )
 
     def scrape_all_scores(self) -> list[ScoreData]:
         """すべてのスコアを取得する
 
         Returns:
             list[ScoreData]: スコアデータのリスト
+
+        Raises:
+            TooManyErrorsError: 連続エラー回数が上限を超えた場合
         """
         scores: list[ScoreData] = []
         page_num = 1
 
         while True:
             logger.info("スコア一覧ページ %d を取得中...", page_num)
-            url = self.SCORE_LIST_URL.format(page=page_num)
-            self.page.goto(url)
+
+            try:
+                url = self.SCORE_LIST_URL.format(page=page_num)
+                self._goto_with_retry(url)
+                self._reset_consecutive_errors()
+            except ScraperError:
+                self._increment_consecutive_errors()
+                self._check_consecutive_errors()
+                page_num += 1
+                continue
 
             # ラウンドリンクを取得
             round_links = self.page.locator(self.ROUND_LINK_SELECTOR).all()
@@ -77,9 +130,19 @@ class ScoreScraper:
                 if link is None:
                     continue
 
+                # プロトコル相対URLを絶対URLに変換
+                if link.startswith("//"):
+                    link = "https:" + link
+                elif link.startswith("/"):
+                    link = "https://score.golfdigest.co.jp" + link
+
+                # リクエスト間の待機(DDoS対策)
+                self._wait_between_requests()
+
                 try:
                     score = self._scrape_score_detail(link)
                     scores.append(score)
+                    self._reset_consecutive_errors()
                     logger.info(
                         "スコア取得完了: %s/%s/%s %s",
                         score.year,
@@ -88,6 +151,7 @@ class ScoreScraper:
                         score.golf_place_name,
                     )
                 except ScraperError as e:
+                    self._increment_consecutive_errors()
                     logger.warning("スコア取得失敗: %s - %s", link, e)
                     if self.settings.debug:
                         save_screenshot(
@@ -95,10 +159,49 @@ class ScoreScraper:
                         )
                         save_html(self.page, self.settings.debug_dir, "scrape_error")
 
+                    # 連続エラー回数チェック
+                    self._check_consecutive_errors()
+
             page_num += 1
+
+            # ページ間の待機(DDoS対策)
+            self._wait_between_requests()
 
         logger.info("全 %d 件のスコアを取得しました", len(scores))
         return scores
+
+    def _goto_with_retry(self, url: str) -> None:
+        """リトライ付きでページ遷移する
+
+        Args:
+            url: 遷移先URL
+
+        Raises:
+            ScraperError: ページ遷移に失敗した場合
+        """
+
+        @retry(
+            retry=retry_if_exception_type(PlaywrightTimeoutError),
+            stop=stop_after_attempt(self.settings.max_retries),
+            wait=wait_exponential(
+                multiplier=1,
+                min=self.settings.retry_min_wait,
+                max=self.settings.retry_max_wait,
+            ),
+            before_sleep=lambda retry_state: logger.warning(
+                "リトライ %d/%d: %s",
+                retry_state.attempt_number,
+                self.settings.max_retries,
+                url,
+            ),
+        )
+        def _goto() -> None:
+            self.page.goto(url, wait_until="domcontentloaded")
+
+        try:
+            _goto()
+        except PlaywrightTimeoutError as e:
+            raise ScraperError(f"ページ遷移に失敗しました: {url}") from e
 
     def _scrape_score_detail(self, url: str) -> ScoreData:
         """スコア詳細ページからデータを抽出する
@@ -109,8 +212,7 @@ class ScoreScraper:
         Returns:
             ScoreData: スコアデータ
         """
-        self.page.goto(url)
-        self.page.wait_for_load_state("networkidle")
+        self._goto_with_retry(url)
 
         # 日付情報
         date_text = self._get_text(SCORE_DETAIL.DATE)
@@ -256,12 +358,21 @@ class ScoreScraper:
         Returns:
             tuple[str, str]: (ゴルフ場名, 都道府県)
         """
+        # 全角括弧で分割(GDOサイトは全角を使用)
+        fullwidth_left = "\uff08"
+        fullwidth_right = "\uff09"
+        if fullwidth_left in text:
+            parts = text.split(fullwidth_left)
+            golf_place_name = parts[0].strip()
+            prefecture = parts[1].rstrip(fullwidth_right).strip()
+            return golf_place_name, prefecture
+        # 半角括弧でも対応
         if "(" in text:
             parts = text.split("(")
-            golf_place_name = parts[0]
-            prefecture = parts[1].rstrip(")")
+            golf_place_name = parts[0].strip()
+            prefecture = parts[1].rstrip(")").strip()
             return golf_place_name, prefecture
-        return text, ""
+        return text.strip(), ""
 
     def _extract_course_name(self, text: str) -> str:
         """コース名を抽出する
@@ -352,29 +463,33 @@ class ScoreScraper:
             logger.debug("同伴者情報がありません")
             return names, scores
 
-        # 各同伴者のスコアを取得
+        if not names:
+            return names, scores
+
+        # 前半スコアを全て取得
+        former_score_elements = self.page.locator(
+            f"{SCORE_DETAIL.BASE} {SCORE_DETAIL.MEMBER_ROW_FORMER} {SCORE_DETAIL.SCORE_CELLS}"
+        ).all()
+
+        # 後半スコアを全て取得
+        latter_score_elements = self.page.locator(
+            f"{SCORE_DETAIL.BASE} {SCORE_DETAIL.MEMBER_ROW_LATTER} {SCORE_DETAIL.SCORE_CELLS}"
+        ).all()
+
+        # 各同伴者のスコアを分割(1人あたり9ホール分)
+        holes_per_half = 9
         for i in range(len(names)):
             member_scores: list[str] = []
 
-            # 前半スコア
-            try:
-                former_cells = self.page.locator(
-                    f"{SCORE_DETAIL.BASE} {SCORE_DETAIL.MEMBER_ROW_FORMER}:nth-child({i + 1}) {SCORE_DETAIL.SCORE_CELLS}"
-                ).all()
-                for cell in former_cells:
-                    member_scores.append(cell.inner_text())
-            except PlaywrightTimeoutError:
-                pass
+            # 前半スコア(9ホール分)
+            start_idx = i * holes_per_half
+            end_idx = start_idx + holes_per_half
+            for j in range(start_idx, min(end_idx, len(former_score_elements))):
+                member_scores.append(former_score_elements[j].inner_text())
 
-            # 後半スコア
-            try:
-                latter_cells = self.page.locator(
-                    f"{SCORE_DETAIL.BASE} {SCORE_DETAIL.MEMBER_ROW_LATTER}:nth-child({i + 1}) {SCORE_DETAIL.SCORE_CELLS}"
-                ).all()
-                for cell in latter_cells:
-                    member_scores.append(cell.inner_text())
-            except PlaywrightTimeoutError:
-                pass
+            # 後半スコア(9ホール分)
+            for j in range(start_idx, min(end_idx, len(latter_score_elements))):
+                member_scores.append(latter_score_elements[j].inner_text())
 
             scores.append(member_scores)
 

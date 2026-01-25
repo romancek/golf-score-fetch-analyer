@@ -29,21 +29,33 @@ def create_browser_context(
         tuple[Browser, BrowserContext, Page]: ブラウザ、コンテキスト、ページのタプル
     """
     with sync_playwright() as playwright:
+        # ボット検出を回避するためのブラウザ起動オプション
         browser = playwright.chromium.launch(
             headless=settings.headless,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+            ],
         )
         logger.info(
             "ブラウザを起動しました(headless=%s)",
             settings.headless,
         )
 
+        # より実際のブラウザに近い設定でコンテキストを作成
         context = browser.new_context(
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": 1920, "height": 1080},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
+            locale="ja-JP",
+            timezone_id="Asia/Tokyo",
+            extra_http_headers={
+                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+            },
         )
         context.set_default_timeout(settings.timeout)
 
@@ -53,6 +65,13 @@ def create_browser_context(
             logger.info("トレース記録を開始しました")
 
         page = context.new_page()
+
+        # navigator.webdriverをfalseに設定してボット検出を回避
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
         try:
             yield browser, context, page

@@ -17,7 +17,13 @@ class LoginSelectors:
     # ログインフォーム
     USERNAME_INPUT: str = "input[name='username']"
     PASSWORD_INPUT: str = "input[name='password']"
-    SUBMIT_BUTTON: str = ".parts_submit_btn input[type='image']"
+    # 送信ボタン(複数のセレクタをカンマ区切りで試行)
+    SUBMIT_BUTTON: str = (
+        '.parts_submit_btn input[type="image"], '
+        '.parts_submit_btn input[type="submit"], '
+        'input[type="submit"], '
+        'button[type="submit"]'
+    )
 
     # モーダルダイアログ(キャンペーン等)
     MODAL_CLOSE_BUTTON: str = "#karte-5322018 button"

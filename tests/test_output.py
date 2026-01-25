@@ -12,9 +12,7 @@ from gdo_score.output import load_scores_from_json, save_scores_to_json
 class TestSaveScoresToJson:
     """save_scores_to_json関数のテスト"""
 
-    def test_save_single_score(
-        self, tmp_path: Path, sample_score_data: ScoreData
-    ):
+    def test_save_single_score(self, tmp_path: Path, sample_score_data: ScoreData):
         """1件のスコアを保存できること"""
         output_path = save_scores_to_json(
             [sample_score_data],
@@ -34,7 +32,10 @@ class TestSaveScoresToJson:
         assert data[0]["golf_place_name"] == "箱根くらかけゴルフ場"
 
     def test_save_multiple_scores(
-        self, tmp_path: Path, sample_score_data: ScoreData, sample_score_data_minimal: ScoreData
+        self,
+        tmp_path: Path,
+        sample_score_data: ScoreData,
+        sample_score_data_minimal: ScoreData,
     ):
         """複数のスコアを保存できること"""
         output_path = save_scores_to_json(
@@ -57,9 +58,7 @@ class TestSaveScoresToJson:
 
         assert data == []
 
-    def test_auto_generate_filename(
-        self, tmp_path: Path, sample_score_data: ScoreData
-    ):
+    def test_auto_generate_filename(self, tmp_path: Path, sample_score_data: ScoreData):
         """ファイル名を自動生成できること"""
         output_path = save_scores_to_json(
             [sample_score_data],
@@ -105,9 +104,7 @@ class TestSaveScoresToJson:
 class TestLoadScoresFromJson:
     """load_scores_from_json関数のテスト"""
 
-    def test_load_scores(
-        self, tmp_path: Path, sample_score_data: ScoreData
-    ):
+    def test_load_scores(self, tmp_path: Path, sample_score_data: ScoreData):
         """スコアを読み込めること"""
         # まず保存
         output_path = save_scores_to_json(
@@ -125,7 +122,10 @@ class TestLoadScoresFromJson:
         assert scores[0].hall_scores == sample_score_data.hall_scores
 
     def test_load_multiple_scores(
-        self, tmp_path: Path, sample_score_data: ScoreData, sample_score_data_minimal: ScoreData
+        self,
+        tmp_path: Path,
+        sample_score_data: ScoreData,
+        sample_score_data_minimal: ScoreData,
     ):
         """複数のスコアを読み込めること"""
         output_path = save_scores_to_json(

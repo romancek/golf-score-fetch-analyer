@@ -21,6 +21,10 @@ uv sync
 
 # Playwrightブラウザをインストール
 uv run playwright install chromium
+
+# Playwrightのシステム依存関係をインストール（Linux環境で必要）
+# sudo権限が必要です
+uv run playwright install-deps chromium
 ```
 
 ### 2. 環境変数の設定
