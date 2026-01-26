@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         description="デバッグモード(true: デバッグ情報出力)",
     )
     output_dir: Path = Field(
-        default=Path("output"),
+        default=Path("data"),
         description="出力ディレクトリ",
     )
     debug_dir: Path = Field(
