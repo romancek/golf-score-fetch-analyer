@@ -87,3 +87,8 @@ temp/
 
 sample/
 data/
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
