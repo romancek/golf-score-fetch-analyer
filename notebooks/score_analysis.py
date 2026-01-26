@@ -389,6 +389,58 @@ def _(mo, score_range_chart):
 
 
 @app.cell
+def _(alt, df_filtered, mo, pl):
+    # 月別スコア分布(箱ひげ図)
+    # monthを整数に変換してソート用カラムを追加
+    df_monthly = df_filtered.with_columns(
+        pl.col("month").cast(pl.Int32).alias("month_int")
+    ).sort("month_int")
+
+    monthly_boxplot = (
+        alt.Chart(df_monthly)
+        .mark_boxplot()
+        .encode(
+            x=alt.X("month_int:O", title="月"),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            color=alt.Color(
+                "month_int:O",
+                legend=None,
+                scale=alt.Scale(scheme="tableau20"),
+            ),
+        )
+        .properties(title="月別スコア分布", width=700, height=300)
+    )
+
+    # 月別ラウンド数を計算
+    monthly_rounds = (
+        df_monthly.group_by("month_int")
+        .agg(pl.col("total_score").count().alias("rounds"))
+        .sort("month_int")
+    )
+
+    mo.md("""
+    ## 月別スコア分布
+    """)
+    return monthly_boxplot, monthly_rounds
+
+
+@app.cell
+def _(mo, monthly_boxplot):
+    mo.ui.altair_chart(monthly_boxplot)
+    return
+
+
+@app.cell
+def _(mo, monthly_rounds):
+    mo.md(f"""
+    ### 月別ラウンド数
+
+    {mo.ui.table(monthly_rounds.rename({"month_int": "月", "rounds": "ラウンド数"}))}
+    """)
+    return
+
+
+@app.cell
 def _(alt, df_filtered, mo):
     # スコア分布ヒストグラム
     histogram = (
