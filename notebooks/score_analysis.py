@@ -644,5 +644,137 @@ def _(alt, df_filtered, df_positions, map_region, pl):
     return
 
 
+@app.cell
+def _(mo):
+    mo.md("""
+    ## ゴルフ場マップ(自由操作)
+
+    地図範囲はドロップダウンではなく、中心位置(緯度・経度)とスケールを
+    スライダーで調整して移動・拡大縮小します。
+    """)
+
+    center_lon = mo.ui.slider(
+        start=120.0,
+        stop=150.0,
+        step=0.1,
+        value=139.8,
+        label="中心経度(lon)",
+    )
+    center_lat = mo.ui.slider(
+        start=20.0,
+        stop=50.0,
+        step=0.1,
+        value=35.9,
+        label="中心緯度(lat)",
+    )
+    map_scale = mo.ui.slider(
+        start=1000,
+        stop=40000,
+        step=1000,
+        value=10000,
+        label="スケール(mercator)",
+    )
+
+    mo.md(
+        f"""
+        {mo.hstack([center_lon, center_lat, map_scale], justify="start", gap=2)}
+        """
+    )
+    return center_lat, center_lon, map_scale
+
+
+@app.cell(hide_code=True)
+def _(alt, center_lat, center_lon, df_filtered, df_positions, map_scale, pl):
+    # ゴルフ場別集計データと位置情報を結合（自由操作マップ用：範囲フィルタなし）
+    place_stats_with_pos_all = (
+        df_filtered.group_by("golf_place_name")
+        .agg(
+            [
+                pl.col("total_score").count().alias("rounds"),
+                pl.col("total_score").mean().round(1).alias("avg_score"),
+                pl.col("total_score").min().alias("best_score"),
+            ]
+        )
+        .join(df_positions, on="golf_place_name", how="left")
+        .filter(pl.col("lat").is_not_null())
+        .with_columns(
+            [
+                pl.when(pl.col("avg_score") >= 110)
+                .then(pl.lit("110+"))
+                .when(pl.col("avg_score") >= 100)
+                .then(pl.lit("100-109"))
+                .when(pl.col("avg_score") >= 90)
+                .then(pl.lit("90-99"))
+                .otherwise(pl.lit("~89"))
+                .alias("score_category")
+            ]
+        )
+    )
+
+    # 日本地図の背景 (TopoJSON)
+    _japan_topo_free = (
+        "https://raw.githubusercontent.com/dataofjapan/land/master/japan.topojson"
+    )
+
+    center = [center_lon.value, center_lat.value]
+    scale = map_scale.value
+
+    background_free = (
+        alt.Chart(alt.topo_feature(_japan_topo_free, "japan"))
+        .mark_geoshape(fill="lightgray", stroke="white", strokeWidth=0.5)
+        .project(
+            type="mercator",
+            scale=scale,
+            center=center,
+        )
+        .properties(width=700, height=500)
+    )
+
+    _score_color_scale_free = alt.Scale(
+        domain=["~89", "90-99", "100-109", "110+"],
+        range=["#2ca02c", "#98df8a", "#ff7f0e", "#d62728"],
+    )
+
+    points_free = (
+        alt.Chart(place_stats_with_pos_all)
+        .mark_circle()
+        .encode(
+            longitude="lon:Q",
+            latitude="lat:Q",
+            size=alt.Size(
+                "rounds:Q", scale=alt.Scale(range=[50, 500]), title="ラウンド数"
+            ),
+            color=alt.Color(
+                "score_category:N",
+                scale=_score_color_scale_free,
+                title="平均スコア",
+            ),
+            tooltip=[
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+                alt.Tooltip("rounds:Q", title="ラウンド数"),
+                alt.Tooltip("avg_score:Q", title="平均スコア"),
+                alt.Tooltip("best_score:Q", title="ベスト"),
+            ],
+        )
+        .project(
+            type="mercator",
+            scale=scale,
+            center=center,
+        )
+    )
+
+    golf_map_free = (background_free + points_free).properties(
+        title=(
+            f"ゴルフ場マップ(自由操作) - center(lat,lon)=({center_lat.value:.1f},"
+            f"{center_lon.value:.1f}), scale={scale}"
+        ),
+        width=700,
+        height=500,
+    )
+
+    golf_map_free
+    return
+
+
 if __name__ == "__main__":
     app.run()

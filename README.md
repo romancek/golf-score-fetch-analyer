@@ -55,6 +55,43 @@ uv run gdo-score
 uv run gdo-score --output ./my_output --headless false
 ```
 
+## 分析（marimoノートブック）
+
+取得したスコアJSONを、marimoノートブックで集計・可視化できます。
+
+### 依存関係
+
+分析用の追加依存関係はextrasで管理しています。
+
+```bash
+uv sync --extra analysis
+```
+
+### ノートブック実行
+
+```bash
+uv run marimo run notebooks/score_analysis.py
+```
+
+### 入力データ
+
+ノートブックは以下を参照します。
+
+- `data/scores_20160312-20251214.json`
+- `data/golf_place_position_lat_lon.csv`
+
+### できること
+
+- フィルタ（年、ゴルフ場、期間）
+- スコア/パット推移
+- 年別スコア分布（箱ひげ）と年間ラウンド数
+- スコア帯ごとの年別分布（棒グラフ）
+- ゴルフ場マップ（地域選択）
+
+### 既知の制約
+
+- marimoの制約により、地図（geoshape）をズーム・パンするインタラクションは利用できません（地域選択で範囲を切り替えます）。
+
 ## 開発
 
 ### コードチェック
@@ -90,6 +127,7 @@ DEBUG=true uv run gdo-score
 
 ```text
 get-gdo-score/
+├── data/              # 分析用データ（.gitignore運用推奨）
 ├── src/gdo_score/      # メインソースコード
 │   ├── __init__.py
 │   ├── config.py       # 設定管理
@@ -101,6 +139,7 @@ get-gdo-score/
 │   ├── output.py       # 出力処理
 │   └── cli.py          # CLIエントリーポイント
 ├── tests/              # テストコード
+├── notebooks/          # marimoノートブック
 ├── docs/               # ドキュメント
 ├── output/             # 出力ファイル（.gitignore）
 ├── debug/              # デバッグファイル（.gitignore）

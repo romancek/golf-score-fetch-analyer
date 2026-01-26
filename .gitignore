@@ -59,10 +59,7 @@ output/*.html
 !output/.gitkeep
 
 # Debug files (デバッグ用スクリーンショット・トレース)
-debug/*.png
-debug/*.jpg
-debug/*.zip
-debug/*.html
+debug/
 !debug/.gitkeep
 
 # Playwright
@@ -92,3 +89,5 @@ data/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+docs/*.html
