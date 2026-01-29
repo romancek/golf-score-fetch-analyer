@@ -245,10 +245,12 @@ def _(mean_line, mo, score_chart):
 
 
 @app.cell
-def _(alt, df_filtered, mo):
-    # パット推移グラフ
+def _(alt, df_filtered, mo, pl):
+    # パット推移グラフ（0パットは除外）
+    df_putt = df_filtered.filter(pl.col("total_putt") > 0)
+
     putt_chart = (
-        alt.Chart(df_filtered)
+        alt.Chart(df_putt)
         .mark_line(point=True, color="green")
         .encode(
             x=alt.X("date:T", title="日付"),
@@ -259,7 +261,7 @@ def _(alt, df_filtered, mo):
         .interactive()
     )
 
-    mean_putt = df_filtered.select("total_putt").mean().item()
+    mean_putt = df_putt.select("total_putt").mean().item()
 
     mo.md(f"""
     ## パット数推移
@@ -708,22 +710,22 @@ def _(mo):
     center_lon = mo.ui.slider(
         start=120.0,
         stop=150.0,
-        step=0.1,
-        value=139.8,
+        step=0.05,
+        value=139.05,
         label="中心経度(lon)",
     )
     center_lat = mo.ui.slider(
         start=20.0,
         stop=50.0,
-        step=0.1,
-        value=35.9,
+        step=0.05,
+        value=35.15,
         label="中心緯度(lat)",
     )
     map_scale = mo.ui.slider(
         start=1000,
-        stop=40000,
+        stop=100000,
         step=1000,
-        value=10000,
+        value=32000,
         label="スケール(mercator)",
     )
 
