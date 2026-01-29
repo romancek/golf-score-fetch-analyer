@@ -284,7 +284,7 @@ def _(alt, df_filtered, mo, pl):
         alt.Chart(df_filtered)
         .mark_boxplot()
         .encode(
-            x=alt.X("year:O", title="年"),
+            x=alt.X("year:O", title="年", axis=alt.Axis(labelAngle=0)),
             y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
             color=alt.Color("year:O", legend=None),
         )
@@ -354,7 +354,7 @@ def _(alt, df_filtered, mo, pl):
         alt.Chart(score_ranges)
         .mark_bar()
         .encode(
-            x=alt.X("year_int:O", title="年"),
+            x=alt.X("year_int:O", title="年", axis=alt.Axis(labelAngle=0)),
             y=alt.Y("count:Q", title="ラウンド数"),
             color=alt.Color(
                 "score_range:N",
@@ -402,7 +402,7 @@ def _(alt, df_filtered, mo, pl):
         alt.Chart(df_monthly)
         .mark_boxplot()
         .encode(
-            x=alt.X("month_int:O", title="月"),
+            x=alt.X("month_int:O", title="月", axis=alt.Axis(labelAngle=0)),
             y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
             color=alt.Color(
                 "month_int:O",
@@ -827,6 +827,661 @@ def _(alt, center_lat, center_lon, df_filtered, df_positions, map_scale, pl):
     )
 
     golf_map_free
+    return
+
+
+# ============================================================
+# 追加分析セクション
+# ============================================================
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ---
+    # 追加分析
+
+    天気・風・フェアウェイキープ率・パーオン率・前半後半比較・同伴者比較・曜日別の分析を行います。
+    """)
+    return
+
+
+# ------------------------------------------------------------
+# 1. 天気別スコア分析
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    # 天気別スコア分布
+    df_weather = df_filtered.filter(
+        pl.col("weather").is_not_null() & (pl.col("weather") != "")
+    )
+
+    weather_order = ["晴れ", "曇り", "雨", "雪"]
+
+    weather_boxplot = (
+        alt.Chart(df_weather)
+        .mark_boxplot()
+        .encode(
+            x=alt.X(
+                "weather:N",
+                title="天気",
+                sort=weather_order,
+                axis=alt.Axis(labelAngle=0),
+            ),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            color=alt.Color(
+                "weather:N",
+                legend=None,
+                sort=weather_order,
+                scale=alt.Scale(
+                    domain=weather_order,
+                    range=["#FFD700", "#A9A9A9", "#4169E1", "#E0FFFF"],
+                ),
+            ),
+        )
+        .properties(title="天気別スコア分布", width=500, height=300)
+    )
+
+    weather_stats = (
+        df_weather.group_by("weather")
+        .agg(
+            [
+                pl.col("total_score").count().alias("ラウンド数"),
+                pl.col("total_score").mean().round(1).alias("平均スコア"),
+                pl.col("total_score").std().round(1).alias("標準偏差"),
+            ]
+        )
+        .sort("平均スコア")
+    )
+
+    mo.md("""
+    ## 1. 天気別スコア分析
+    """)
+    return weather_boxplot, weather_stats
+
+
+@app.cell
+def _(mo, weather_boxplot):
+    mo.ui.altair_chart(weather_boxplot)
+    return
+
+
+@app.cell
+def _(mo, weather_stats):
+    mo.md(f"""
+    ### 天気別統計
+
+    {mo.ui.table(weather_stats)}
+    """)
+    return
+
+
+# ------------------------------------------------------------
+# 2. 風の強さとスコアの関係
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    df_wind = df_filtered.filter(pl.col("wind").is_not_null() & (pl.col("wind") != ""))
+
+    wind_order = ["微風", "弱", "中", "強"]
+
+    wind_boxplot = (
+        alt.Chart(df_wind)
+        .mark_boxplot()
+        .encode(
+            x=alt.X("wind:N", title="風", sort=wind_order, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            color=alt.Color(
+                "wind:N",
+                legend=None,
+                sort=wind_order,
+                scale=alt.Scale(
+                    domain=wind_order,
+                    range=["#98FB98", "#87CEEB", "#FFA500", "#DC143C"],
+                ),
+            ),
+        )
+        .properties(title="風の強さ別スコア分布", width=500, height=300)
+    )
+
+    wind_stats = (
+        df_wind.group_by("wind")
+        .agg(
+            [
+                pl.col("total_score").count().alias("ラウンド数"),
+                pl.col("total_score").mean().round(1).alias("平均スコア"),
+                pl.col("total_score").std().round(1).alias("標準偏差"),
+            ]
+        )
+        .sort("平均スコア")
+    )
+
+    mo.md("""
+    ## 2. 風の強さとスコアの関係
+    """)
+    return wind_boxplot, wind_stats
+
+
+@app.cell
+def _(mo, wind_boxplot):
+    mo.ui.altair_chart(wind_boxplot)
+    return
+
+
+@app.cell
+def _(mo, wind_stats):
+    mo.md(f"""
+    ### 風の強さ別統計
+
+    {mo.ui.table(wind_stats)}
+    """)
+    return
+
+
+# ------------------------------------------------------------
+# 3. フェアウェイキープ率とスコア相関
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    # フェアウェイキープ率を計算(Par3を除くホールでis-keepの割合)
+    df_fwk = (
+        df_filtered.with_columns(
+            [
+                pl.col("fairway_keeps")
+                .list.eval(pl.element().eq("is-keep").cast(pl.Int32))
+                .list.sum()
+                .alias("fwk_count"),
+                pl.col("fairway_keeps")
+                .list.eval((pl.element() != "-").cast(pl.Int32))
+                .list.sum()
+                .alias("fwk_total"),
+            ]
+        )
+        .with_columns(
+            [
+                (pl.col("fwk_count") / pl.col("fwk_total") * 100)
+                .round(1)
+                .alias("fwk_rate")
+            ]
+        )
+        .filter(pl.col("fwk_total") > 0)
+    )
+
+    fwk_scatter = (
+        alt.Chart(df_fwk)
+        .mark_circle(size=80, opacity=0.6)
+        .encode(
+            x=alt.X("fwk_rate:Q", title="フェアウェイキープ率(%)"),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+                alt.Tooltip("fwk_rate:Q", title="FWK率(%)"),
+                alt.Tooltip("total_score:Q", title="スコア"),
+            ],
+            color=alt.value("#2E8B57"),
+        )
+        .properties(title="フェアウェイキープ率とスコアの関係", width=600, height=400)
+        .interactive()
+    )
+
+    # 回帰線を追加
+    fwk_regression = fwk_scatter + fwk_scatter.transform_regression(
+        "fwk_rate", "total_score"
+    ).mark_line(color="red", strokeDash=[5, 5])
+
+    # 相関係数を計算
+    fwk_corr = df_fwk.select(pl.corr("fwk_rate", "total_score")).item()
+
+    mo.md(f"""
+    ## 3. フェアウェイキープ率とスコア相関
+
+    相関係数: **{fwk_corr:.3f}**
+    """)
+    return (fwk_regression,)
+
+
+@app.cell
+def _(fwk_regression):
+    fwk_regression
+    return
+
+
+# ------------------------------------------------------------
+# 4. ワンオン率とスコア相関
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    # ワンオン率を計算(is-okの割合)
+    df_paron = (
+        df_filtered.with_columns(
+            [
+                pl.col("oneons")
+                .list.eval(pl.element().eq("is-ok").cast(pl.Int32))
+                .list.sum()
+                .alias("paron_count"),
+                pl.col("oneons")
+                .list.eval((pl.element() != "-").cast(pl.Int32))
+                .list.sum()
+                .alias("paron_total"),
+            ]
+        )
+        .with_columns(
+            [
+                (pl.col("paron_count") / pl.col("paron_total") * 100)
+                .round(1)
+                .alias("paron_rate")
+            ]
+        )
+        .filter(pl.col("paron_total") > 0)
+    )
+
+    paron_scatter = (
+        alt.Chart(df_paron)
+        .mark_circle(size=80, opacity=0.6)
+        .encode(
+            x=alt.X("paron_rate:Q", title="ワンオン率(%)"),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+                alt.Tooltip("paron_rate:Q", title="ワンオン率(%)"),
+                alt.Tooltip("total_score:Q", title="スコア"),
+            ],
+            color=alt.value("#4169E1"),
+        )
+        .properties(title="ワンオン率とスコアの関係", width=600, height=400)
+        .interactive()
+    )
+
+    paron_regression = paron_scatter + paron_scatter.transform_regression(
+        "paron_rate", "total_score"
+    ).mark_line(color="red", strokeDash=[5, 5])
+
+    paron_corr = df_paron.select(pl.corr("paron_rate", "total_score")).item()
+
+    mo.md(f"""
+    ## 4. ワンオン率とスコア相関
+
+    相関係数: **{paron_corr:.3f}**
+    """)
+    return (paron_regression,)
+
+
+@app.cell
+def _(paron_regression):
+    paron_regression
+    return
+
+
+# ------------------------------------------------------------
+# 5. 前半/後半スコア比較
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    # 前半(1-9)と後半(10-18)のスコアを計算
+    df_half = (
+        df_filtered.with_columns(
+            [
+                pl.col("hall_scores")
+                .list.slice(0, 9)
+                .list.eval(
+                    pl.element().replace("ー", None).cast(pl.Int32, strict=False)
+                )
+                .list.sum()
+                .alias("first_half"),
+                pl.col("hall_scores")
+                .list.slice(9, 9)
+                .list.eval(
+                    pl.element().replace("ー", None).cast(pl.Int32, strict=False)
+                )
+                .list.sum()
+                .alias("second_half"),
+            ]
+        )
+        .with_columns(
+            [(pl.col("first_half") - pl.col("second_half")).alias("half_diff")]
+        )
+        .filter(
+            pl.col("first_half").is_not_null() & pl.col("second_half").is_not_null()
+        )
+    )
+
+    # 前半 vs 後半 散布図
+    half_scatter = (
+        alt.Chart(df_half)
+        .mark_circle(size=80, opacity=0.6)
+        .encode(
+            x=alt.X("first_half:Q", title="前半スコア"),
+            y=alt.Y("second_half:Q", title="後半スコア"),
+            color=alt.Color(
+                "half_diff:Q",
+                title="前半-後半",
+                scale=alt.Scale(scheme="redblue", domainMid=0, reverse=True),
+            ),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+                alt.Tooltip("first_half:Q", title="前半"),
+                alt.Tooltip("second_half:Q", title="後半"),
+                alt.Tooltip("half_diff:Q", title="差(前半-後半)"),
+            ],
+        )
+        .properties(
+            title="前半vs後半スコア(青:前半が良い、赤:後半が良い)",
+            width=500,
+            height=400,
+        )
+        .interactive()
+    )
+
+    # 対角線(前半=後半)を追加
+    line_df = pl.DataFrame({"x": [40, 70], "y": [40, 70]})
+    diagonal = (
+        alt.Chart(line_df)
+        .mark_line(color="gray", strokeDash=[5, 5], opacity=0.5)
+        .encode(x="x:Q", y="y:Q")
+    )
+
+    half_chart = half_scatter + diagonal
+
+    # 前半-後半の差分分布（マイナスは前半が良い）
+    diff_hist = (
+        alt.Chart(df_half)
+        .mark_bar()
+        .encode(
+            x=alt.X(
+                "half_diff:Q",
+                bin=alt.Bin(step=2),
+                title="前半-後半スコア差",
+            ),
+            y=alt.Y("count()", title="頻度"),
+            color=alt.condition(
+                alt.datum.half_diff < 0,
+                alt.value("#1f77b4"),
+                alt.value("#d62728"),
+            ),
+            tooltip=[
+                alt.Tooltip("count()", title="件数"),
+                alt.Tooltip("half_diff:Q", title="差(前半-後半)"),
+            ],
+        )
+        .properties(title="前半-後半スコア差分布", width=500, height=250)
+    )
+
+    # 統計
+    avg_first = df_half.select("first_half").mean().item()
+    avg_second = df_half.select("second_half").mean().item()
+    avg_diff = df_half.select("half_diff").mean().item()
+
+    mo.md(f"""
+    ## 5. 前半/後半スコア比較
+
+    - 前半平均: **{avg_first:.1f}**
+    - 後半平均: **{avg_second:.1f}**
+    - 平均差(前半-後半): **{avg_diff:+.1f}** {"(後半が良い)" if avg_diff > 0 else "(前半が良い)"}
+    """)
+    return diff_hist, half_chart
+
+
+@app.cell
+def _(diff_hist, half_chart, mo):
+    mo.vstack([half_chart, diff_hist])
+    return
+
+
+# ------------------------------------------------------------
+# 6. 同伴者との比較
+# ------------------------------------------------------------
+@app.cell
+def _(Path, df_filtered, mo, pl):
+    # 同伴者名の表記ゆれマッピングを読み込み
+    MAPPING_FILE = Path(__file__).parent.parent / "data" / "accompany_name_mapping.json"
+
+    import json
+
+    if MAPPING_FILE.exists():
+        with MAPPING_FILE.open() as f:
+            name_mapping = json.load(f)
+    else:
+        name_mapping = {}
+
+    # 同伴者スコアを展開して比較
+    def calc_accompany_scores(row):
+        scores = row["accompany_member_scores"]
+        names = row["accompany_member_names"]
+        if not scores or not names:
+            return []
+        result = []
+        for name, score_list in zip(names, scores, strict=False):
+            try:
+                total = sum(int(s) for s in score_list if s and s != "ー")
+                if total > 0:
+                    # 表記ゆれマッピングを適用
+                    normalized_name = name_mapping.get(name, name)
+                    if normalized_name:  # 空文字列は除外
+                        result.append({"name": normalized_name, "score": total})
+            except (ValueError, TypeError):
+                pass
+        return result
+
+    # 同伴者との比較データを作成
+    accompany_data = []
+    for row in df_filtered.iter_rows(named=True):
+        my_score = row["total_score"]
+        if my_score is None:
+            continue
+        accompany = calc_accompany_scores(row)
+        for a in accompany:
+            accompany_data.append(
+                {
+                    "date": row["date"],
+                    "golf_place_name": row["golf_place_name"],
+                    "my_score": my_score,
+                    "accompany_name": a["name"],
+                    "accompany_score": a["score"],
+                    "diff": my_score - a["score"],
+                }
+            )
+
+    df_accompany = pl.DataFrame(accompany_data) if accompany_data else None
+
+    if df_accompany is not None and len(df_accompany) > 0:
+        # 同伴者別の勝敗と平均差
+        accompany_stats = (
+            df_accompany.group_by("accompany_name")
+            .agg(
+                [
+                    pl.col("diff").count().alias("ラウンド数"),
+                    (pl.col("diff") < 0).sum().alias("勝ち"),
+                    (pl.col("diff") == 0).sum().alias("引分"),
+                    (pl.col("diff") > 0).sum().alias("負け"),
+                    pl.col("diff").mean().round(1).alias("平均スコア差"),
+                ]
+            )
+            .filter(pl.col("ラウンド数") >= 3)
+            .sort("平均スコア差")
+        )
+
+        # 同伴数ランキング
+        accompany_ranking = (
+            df_accompany.group_by("accompany_name")
+            .agg(
+                [
+                    pl.col("diff").count().alias("同伴回数"),
+                ]
+            )
+            .sort("同伴回数", descending=True)
+        )
+    else:
+        accompany_stats = None
+        accompany_ranking = None
+
+    mo.md("""
+    ## 6. 同伴者との比較
+    """)
+    return accompany_ranking, accompany_stats, df_accompany
+
+
+@app.cell
+def _(accompany_ranking, mo):
+    if accompany_ranking is not None and len(accompany_ranking) > 0:
+        _output = mo.md(f"""
+        ### 同伴数ランキング
+
+        {mo.ui.table(accompany_ranking)}
+        """)
+    else:
+        _output = mo.md("")
+    _output
+    return
+
+
+@app.cell
+def _(accompany_stats, mo):
+    if accompany_stats is not None and len(accompany_stats) > 0:
+        _output = mo.md(f"""
+        ### 同伴者別成績(3ラウンド以上)
+
+        スコア差: 自分 - 同伴者(マイナスは自分が良い)
+
+        {mo.ui.table(accompany_stats)}
+        """)
+    else:
+        _output = mo.md("同伴者データが不足しています。")
+    _output
+    return
+
+
+@app.cell
+def _(alt, df_accompany, mo):
+    if df_accompany is not None and len(df_accompany) > 0:
+        accompany_hist = (
+            alt.Chart(df_accompany)
+            .mark_bar()
+            .encode(
+                x=alt.X("diff:Q", bin=alt.Bin(step=5), title="スコア差(自分-同伴者)"),
+                y=alt.Y("count()", title="頻度"),
+                color=alt.condition(
+                    alt.datum.diff < 0,
+                    alt.value("#2E8B57"),
+                    alt.value("#DC143C"),
+                ),
+            )
+            .properties(
+                title="同伴者とのスコア差分布(緑:勝ち、赤:負け)", width=600, height=300
+            )
+        )
+        _output = mo.ui.altair_chart(accompany_hist)
+    else:
+        _output = mo.md("")
+    _output
+    return
+
+
+# ------------------------------------------------------------
+# 7. 曜日別スコア分析
+# ------------------------------------------------------------
+@app.cell
+def _(alt, df_filtered, mo, pl):
+    # 曜日を追加
+    df_weekday = (
+        df_filtered.with_columns(
+            [
+                pl.col("date").dt.weekday().alias("weekday_num"),
+            ]
+        )
+        .with_columns(
+            [
+                pl.when(pl.col("weekday_num") == 1)
+                .then(pl.lit("月"))
+                .when(pl.col("weekday_num") == 2)
+                .then(pl.lit("火"))
+                .when(pl.col("weekday_num") == 3)
+                .then(pl.lit("水"))
+                .when(pl.col("weekday_num") == 4)
+                .then(pl.lit("木"))
+                .when(pl.col("weekday_num") == 5)
+                .then(pl.lit("金"))
+                .when(pl.col("weekday_num") == 6)
+                .then(pl.lit("土"))
+                .when(pl.col("weekday_num") == 7)
+                .then(pl.lit("日"))
+                .alias("weekday"),
+                pl.when(pl.col("weekday_num") >= 6)
+                .then(pl.lit("週末"))
+                .otherwise(pl.lit("平日"))
+                .alias("day_type"),
+            ]
+        )
+        .filter(pl.col("weekday").is_not_null() & (pl.col("weekday") != ""))
+    )
+
+    weekday_order = ["月", "火", "水", "木", "金", "土", "日"]
+
+    weekday_boxplot = (
+        alt.Chart(df_weekday)
+        .mark_boxplot()
+        .encode(
+            x=alt.X(
+                "weekday:N",
+                title="曜日",
+                sort=weekday_order,
+                axis=alt.Axis(labelAngle=0),
+            ),
+            y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
+            color=alt.Color(
+                "day_type:N",
+                title="種別",
+                scale=alt.Scale(domain=["平日", "週末"], range=["#4169E1", "#FF6347"]),
+            ),
+        )
+        .properties(title="曜日別スコア分布", width=600, height=300)
+    )
+
+    weekday_stats = (
+        df_weekday.group_by("weekday", "weekday_num")
+        .agg(
+            [
+                pl.col("total_score").count().alias("ラウンド数"),
+                pl.col("total_score").mean().round(1).alias("平均スコア"),
+            ]
+        )
+        .sort("weekday_num")
+        .drop("weekday_num")
+    )
+
+    daytype_stats = df_weekday.group_by("day_type").agg(
+        [
+            pl.col("total_score").count().alias("ラウンド数"),
+            pl.col("total_score").mean().round(1).alias("平均スコア"),
+            pl.col("total_score").std().round(1).alias("標準偏差"),
+        ]
+    )
+
+    mo.md("""
+    ## 7. 曜日別スコア分析
+    """)
+    return daytype_stats, weekday_boxplot, weekday_stats
+
+
+@app.cell
+def _(mo, weekday_boxplot):
+    mo.ui.altair_chart(weekday_boxplot)
+    return
+
+
+@app.cell
+def _(daytype_stats, mo, weekday_stats):
+    mo.md(f"""
+    ### 曜日別統計
+
+    {mo.ui.table(weekday_stats)}
+
+    ### 平日 vs 週末
+
+    {mo.ui.table(daytype_stats)}
+    """)
     return
 
 
