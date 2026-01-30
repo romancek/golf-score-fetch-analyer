@@ -21,14 +21,13 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+    # ノーマライザーのインポート
+    import sys
     from pathlib import Path
 
     import altair as alt
     import marimo as mo
     import polars as pl
-
-    # ノーマライザーのインポート
-    import sys
 
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
     from gdo_score.normalizer import DataNormalizer
