@@ -84,6 +84,9 @@ temp/
 
 sample/
 data/
+# ただしマッピングファイルは含める
+!data/golf_place_name_mapping.json
+!data/prefecture_mapping.yaml
 
 # Marimo
 marimo/_static/
@@ -92,3 +95,6 @@ __marimo__/
 notebooks/__marimo__/
 
 docs/*.html
+output_test/
+IMPLEMENTATION_SUMMARY.md
+test_scraping.py

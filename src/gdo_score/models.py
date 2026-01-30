@@ -51,6 +51,14 @@ class ScoreData(BaseModel):
     bunkers: list[str] = Field(default_factory=list, description="バンカー数")
     penaltys: list[str] = Field(default_factory=list, description="ペナルティ数")
 
+    # ホール情報
+    par_scores: list[str] = Field(
+        default_factory=list, description="各ホールのパー数(18ホール分)"
+    )
+    yard_scores: list[str] = Field(
+        default_factory=list, description="各ホールのヤード数(18ホール分)"
+    )
+
     # 同伴者情報
     accompany_member_names: list[str] = Field(
         default_factory=list, description="同伴者名"

@@ -96,6 +96,14 @@ class ScoreDetailSelectors:
     PENALTY_ROW_FORMER: str = "table:nth-child(4) > tbody > tr.is-penalty"
     PENALTY_ROW_LATTER: str = "table:nth-child(6) > tbody > tr.is-penalty"
 
+    # パー行
+    PAR_ROW_FORMER: str = "table:nth-child(4) > tbody > tr.is-par"
+    PAR_ROW_LATTER: str = "table:nth-child(6) > tbody > tr.is-par"
+
+    # ヤード行
+    YARD_ROW_FORMER: str = "table:nth-child(4) > tbody > tr.is-yard"
+    YARD_ROW_LATTER: str = "table:nth-child(6) > tbody > tr.is-yard"
+
     # 同伴者行
     MEMBER_ROW_FORMER: str = "table:nth-child(4) > tbody > tr.is-member"
     MEMBER_ROW_LATTER: str = "table:nth-child(6) > tbody > tr.is-member"

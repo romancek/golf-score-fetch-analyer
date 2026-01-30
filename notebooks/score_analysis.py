@@ -53,6 +53,150 @@ def _(Path, pl):
 
 @app.cell
 def _(df_raw, pl):
+    # ワンオン率・ボギーオン率計算関数
+    def calculate_green_on_rates(row: dict) -> dict:
+        """ワンオン率とボギーオン率を計算する
+
+        Args:
+            row: hall_scores, putt_scores, par_scores を含む辞書
+
+        Returns:
+            dict: {
+                "oneon_rate": float | None,
+                "bogey_on_rate": float | None
+            }
+        """
+        hall_scores = row.get("hall_scores", [])
+        putt_scores = row.get("putt_scores", [])
+        par_scores = row.get("par_scores", [])
+
+        # パー数が存在しない場合はNoneを返す
+        if not par_scores or len(par_scores) == 0:
+            return {"oneon_rate": None, "bogey_on_rate": None}
+
+        oneon_count = 0
+        bogey_on_count = 0
+        valid_holes = 0
+
+        for i in range(min(len(hall_scores), len(putt_scores), len(par_scores))):
+            score_str = hall_scores[i]
+            putt_str = putt_scores[i]
+            par_str = par_scores[i]
+
+            # 欠損値チェック
+            if score_str == "ー" or putt_str == "ー" or par_str == "ー":
+                continue
+
+            try:
+                score = int(score_str)
+                putt = int(putt_str)
+                par = int(par_str)
+
+                valid_holes += 1
+
+                # グリーンオンまでの打数 = スコア - パット数
+                shots_to_green = score - putt
+
+                # ワンオン判定: パー - 1打以内でグリーンに乗せる
+                if shots_to_green <= (par - 1):
+                    oneon_count += 1
+
+                # ボギーオン判定: パー打でグリーンに乗せる
+                if shots_to_green <= par:
+                    bogey_on_count += 1
+
+            except (ValueError, TypeError):
+                continue
+
+        if valid_holes == 0:
+            return {"oneon_rate": None, "bogey_on_rate": None}
+
+        return {
+            "oneon_rate": oneon_count / valid_holes,
+            "bogey_on_rate": bogey_on_count / valid_holes,
+        }
+
+    # 条件付きスコア率計算関数
+    def calculate_conditional_score_rates(row: dict) -> dict:
+        """OB・ペナルティー・バンカー時のスコア率を計算
+
+        Returns:
+            dict: {
+                "ob_par_rate", "ob_bogey_rate", "ob_double_bogey_rate",
+                "penalty_par_rate", "penalty_bogey_rate", "penalty_double_bogey_rate",
+                "bunker_par_rate", "bunker_bogey_rate", "bunker_double_bogey_rate"
+            }
+        """
+        hall_scores = row.get("hall_scores", [])
+        par_scores = row.get("par_scores", [])
+        obs = row.get("obs", [])
+        penaltys = row.get("penaltys", [])
+        bunkers = row.get("bunkers", [])
+
+        result = {}
+
+        # 各条件の集計
+        for condition_name, condition_data in [
+            ("ob", obs),
+            ("penalty", penaltys),
+            ("bunker", bunkers),
+        ]:
+            par_count = 0
+            bogey_count = 0
+            double_bogey_count = 0
+            total_count = 0
+
+            for i in range(min(len(hall_scores), len(par_scores), len(condition_data))):
+                score_str = hall_scores[i]
+                par_str = par_scores[i]
+                cond_str = condition_data[i]
+
+                # 条件が発生していない、または欠損値の場合はスキップ
+                if not cond_str or cond_str == "" or cond_str == "ー":
+                    continue
+
+                try:
+                    cond_value = int(cond_str)
+                    if cond_value == 0:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+                # スコアとパーが有効な場合のみカウント
+                if score_str == "ー" or par_str == "ー":
+                    continue
+
+                try:
+                    score = int(score_str)
+                    par = int(par_str)
+
+                    total_count += 1
+                    diff = score - par
+
+                    if diff == 0:
+                        par_count += 1
+                    elif diff == 1:
+                        bogey_count += 1
+                    elif diff == 2:
+                        double_bogey_count += 1
+
+                except (ValueError, TypeError):
+                    continue
+
+            # 率を計算
+            if total_count > 0:
+                result[f"{condition_name}_par_rate"] = par_count / total_count
+                result[f"{condition_name}_bogey_rate"] = bogey_count / total_count
+                result[f"{condition_name}_double_bogey_rate"] = (
+                    double_bogey_count / total_count
+                )
+            else:
+                result[f"{condition_name}_par_rate"] = None
+                result[f"{condition_name}_bogey_rate"] = None
+                result[f"{condition_name}_double_bogey_rate"] = None
+
+        return result
+
     # データ前処理
     df = (
         df_raw
@@ -91,13 +235,79 @@ def _(df_raw, pl):
                 )
                 .list.sum()
                 .alias("total_putt"),
+                # ペナルティ集計
+                pl.col("obs")
+                .list.eval(
+                    pl.element()
+                    .replace("ー", "0")
+                    .replace("", "0")
+                    .cast(pl.Int32, strict=False)
+                )
+                .list.sum()
+                .alias("total_ob"),
+                pl.col("bunkers")
+                .list.eval(
+                    pl.element()
+                    .replace("ー", "0")
+                    .replace("", "0")
+                    .cast(pl.Int32, strict=False)
+                )
+                .list.sum()
+                .alias("total_bunker"),
+                pl.col("penaltys")
+                .list.eval(
+                    pl.element()
+                    .replace("ー", "0")
+                    .replace("", "0")
+                    .cast(pl.Int32, strict=False)
+                )
+                .list.sum()
+                .alias("total_penalty"),
             ]
         )
+        # グリーンオン率を計算
+        .with_columns(
+            [
+                pl.struct(["hall_scores", "putt_scores", "par_scores"])
+                .map_elements(
+                    calculate_green_on_rates,
+                    return_dtype=pl.Struct(
+                        {"oneon_rate": pl.Float64, "bogey_on_rate": pl.Float64}
+                    ),
+                )
+                .alias("green_on_rates")
+            ]
+        )
+        .unnest("green_on_rates")
+        # 条件付きスコア率を計算
+        .with_columns(
+            [
+                pl.struct(["hall_scores", "par_scores", "obs", "penaltys", "bunkers"])
+                .map_elements(
+                    calculate_conditional_score_rates,
+                    return_dtype=pl.Struct(
+                        {
+                            "ob_par_rate": pl.Float64,
+                            "ob_bogey_rate": pl.Float64,
+                            "ob_double_bogey_rate": pl.Float64,
+                            "penalty_par_rate": pl.Float64,
+                            "penalty_bogey_rate": pl.Float64,
+                            "penalty_double_bogey_rate": pl.Float64,
+                            "bunker_par_rate": pl.Float64,
+                            "bunker_bogey_rate": pl.Float64,
+                            "bunker_double_bogey_rate": pl.Float64,
+                        }
+                    ),
+                )
+                .alias("conditional_rates")
+            ]
+        )
+        .unnest("conditional_rates")
         # 日付順にソート
         .sort("date")
     )
     df
-    return (df,)
+    return (calculate_conditional_score_rates, calculate_green_on_rates, df)
 
 
 @app.cell
@@ -1482,6 +1692,223 @@ def _(daytype_stats, mo, weekday_stats):
 
     {mo.ui.table(daytype_stats)}
     """)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## グリーンオン率分析
+
+    パー数データがあるラウンドについて、ワンオン率とボギーオン率を分析します。
+    """)
+    return
+
+
+@app.cell
+def _(df_filtered, pl):
+    # パー数データが存在するラウンドのみフィルタ
+    df_with_par = df_filtered.filter(pl.col("oneon_rate").is_not_null())
+    return (df_with_par,)
+
+
+@app.cell
+def _(alt, df_with_par):
+    # ワンオン率の推移
+    chart_oneon = (
+        alt.Chart(df_with_par)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("date:T", title="日付"),
+            y=alt.Y(
+                "oneon_rate:Q",
+                title="ワンオン率",
+                scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(format="%"),
+            ),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("oneon_rate:Q", format=".1%", title="ワンオン率"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+            ],
+        )
+        .properties(width=800, height=300, title="ワンオン率の推移")
+    )
+
+    # ボギーオン率の推移
+    chart_bogey_on = (
+        alt.Chart(df_with_par)
+        .mark_line(point=True, color="orange")
+        .encode(
+            x=alt.X("date:T", title="日付"),
+            y=alt.Y(
+                "bogey_on_rate:Q",
+                title="ボギーオン率",
+                scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(format="%"),
+            ),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("bogey_on_rate:Q", format=".1%", title="ボギーオン率"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+            ],
+        )
+        .properties(width=800, height=300, title="ボギーオン率の推移")
+    )
+
+    chart_oneon, chart_bogey_on
+    return chart_bogey_on, chart_oneon
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## ペナルティ発生率の推移
+
+    OB、バンカー、ペナルティの発生率（ホールあたり）を表示します。
+    """)
+    return
+
+
+@app.cell
+def _(df_filtered, pl):
+    # ペナルティ率を計算（ホールあたりの発生率）
+    penalty_df = df_filtered.select(
+        [
+            "date",
+            "golf_place_name",
+            "total_ob",
+            "total_bunker",
+            "total_penalty",
+        ]
+    ).with_columns(
+        [
+            (pl.col("total_ob") / 18).alias("ob_rate"),
+            (pl.col("total_bunker") / 18).alias("bunker_rate"),
+            (pl.col("total_penalty") / 18).alias("penalty_rate"),
+        ]
+    )
+
+    # ロングフォーマットに変換
+    penalty_long = (
+        penalty_df.select(
+            ["date", "golf_place_name", "ob_rate", "bunker_rate", "penalty_rate"]
+        )
+        .unpivot(
+            index=["date", "golf_place_name"],
+            on=["ob_rate", "bunker_rate", "penalty_rate"],
+            variable_name="penalty_type",
+            value_name="rate",
+        )
+        .with_columns(
+            [
+                pl.col("penalty_type")
+                .replace(
+                    {
+                        "ob_rate": "OB",
+                        "bunker_rate": "バンカー",
+                        "penalty_rate": "ペナルティ",
+                    }
+                )
+                .alias("penalty_type")
+            ]
+        )
+    )
+
+    penalty_df, penalty_long
+    return penalty_df, penalty_long
+
+
+@app.cell
+def _(alt, penalty_long):
+    # ペナルティ発生率の推移グラフ
+    chart_penalty = (
+        alt.Chart(penalty_long)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("date:T", title="日付"),
+            y=alt.Y("rate:Q", title="発生率（ホールあたり）"),
+            color=alt.Color("penalty_type:N", title="種別"),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("penalty_type:N", title="種別"),
+                alt.Tooltip("rate:Q", format=".2f", title="発生率"),
+            ],
+        )
+        .properties(width=800, height=400, title="ペナルティ発生率の推移")
+    )
+
+    chart_penalty
+    return (chart_penalty,)
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 条件付きスコア率分析
+
+    OB・ペナルティー・バンカーが発生した場合のパー・ボギー・ダブルボギー率を分析します。
+    """)
+    return
+
+
+@app.cell
+def _(df_with_par, pl):
+    # 条件付きスコア率の集計
+    conditional_stats = []
+
+    for condition_name, condition_label in [
+        ("ob", "OB"),
+        ("penalty", "ペナルティー"),
+        ("bunker", "バンカー"),
+    ]:
+        # データが存在するラウンドのみ
+        valid_df = df_with_par.filter(
+            pl.col(f"{condition_name}_par_rate").is_not_null()
+        )
+
+        if len(valid_df) > 0:
+            par_rate = valid_df.select(f"{condition_name}_par_rate").mean().item()
+            bogey_rate = valid_df.select(f"{condition_name}_bogey_rate").mean().item()
+            double_bogey_rate = (
+                valid_df.select(f"{condition_name}_double_bogey_rate").mean().item()
+            )
+
+            conditional_stats.append(
+                {
+                    "条件": condition_label,
+                    "パー率": f"{par_rate:.1%}" if par_rate is not None else "-",
+                    "ボギー率": (
+                        f"{bogey_rate:.1%}" if bogey_rate is not None else "-"
+                    ),
+                    "ダブルボギー率": (
+                        f"{double_bogey_rate:.1%}"
+                        if double_bogey_rate is not None
+                        else "-"
+                    ),
+                    "集計ラウンド数": len(valid_df),
+                }
+            )
+
+    df_conditional_stats = (
+        pl.DataFrame(conditional_stats) if conditional_stats else None
+    )
+    df_conditional_stats
+    return (conditional_stats, df_conditional_stats)
+
+
+@app.cell
+def _(df_conditional_stats, mo):
+    if df_conditional_stats is not None and len(df_conditional_stats) > 0:
+        mo.md(f"""
+        ### 条件付きスコア率（平均）
+
+        {mo.ui.table(df_conditional_stats)}
+
+        ※ 各条件が発生したホールのみを対象に集計しています。
+        """)
+    else:
+        mo.md("パー数データが不足しているため、条件付きスコア率を計算できません。")
     return
 
 

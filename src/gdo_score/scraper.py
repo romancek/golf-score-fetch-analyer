@@ -19,6 +19,7 @@ from tenacity import (
 from .browser import save_html, save_screenshot
 from .config import Settings
 from .models import ScoreData
+from .normalizer import DataNormalizer
 from .selectors import SCORE_DETAIL
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class ScoreScraper:
         self.page = page
         self.settings = settings
         self._consecutive_errors = 0
+        self.normalizer = DataNormalizer()
 
     def _wait_between_requests(self) -> None:
         """リクエスト間の待機(DDoS対策)"""
@@ -223,6 +225,10 @@ class ScoreScraper:
         # ゴルフ場情報
         golf_place_name, prefecture = self._get_golf_place_info()
 
+        # 正規化処理を適用
+        golf_place_name = self.normalizer.normalize_golf_place_name(golf_place_name)
+        prefecture = self.normalizer.normalize_prefecture(prefecture)
+
         # コンディション情報
         weather = self._get_text(SCORE_DETAIL.WEATHER)
         wind = self._get_text(SCORE_DETAIL.WIND)
@@ -234,6 +240,10 @@ class ScoreScraper:
         course_latter_text = self._get_text(SCORE_DETAIL.COURSE_LATTER_HALF)
         course_former_half = self._extract_course_name(course_former_text)
         course_latter_half = self._extract_course_name(course_latter_text)
+
+        # コース名のクリーニング（【】を除外）
+        course_former_half = self.normalizer.clean_course_name(course_former_half)
+        course_latter_half = self.normalizer.clean_course_name(course_latter_half)
 
         # スコア情報
         hall_scores = self._get_scores_from_rows(
@@ -265,6 +275,14 @@ class ScoreScraper:
             SCORE_DETAIL.PENALTY_ROW_FORMER, SCORE_DETAIL.PENALTY_ROW_LATTER
         )
 
+        # ホール情報
+        par_scores = self._get_scores_from_rows(
+            SCORE_DETAIL.PAR_ROW_FORMER, SCORE_DETAIL.PAR_ROW_LATTER
+        )
+        yard_scores = self._get_scores_from_rows(
+            SCORE_DETAIL.YARD_ROW_FORMER, SCORE_DETAIL.YARD_ROW_LATTER
+        )
+
         # 同伴者情報
         accompany_member_names, accompany_member_scores = self._get_accompany_members()
 
@@ -288,6 +306,8 @@ class ScoreScraper:
             obs=obs,
             bunkers=bunkers,
             penaltys=penaltys,
+            par_scores=par_scores,
+            yard_scores=yard_scores,
             accompany_member_names=accompany_member_names,
             accompany_member_scores=accompany_member_scores,
         )
