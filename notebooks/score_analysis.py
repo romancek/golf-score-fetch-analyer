@@ -27,7 +27,13 @@ def _():
     import marimo as mo
     import polars as pl
 
-    return Path, alt, mo, pl
+    # ノーマライザーのインポート
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+    from gdo_score.normalizer import DataNormalizer
+
+    return DataNormalizer, Path, alt, mo, pl
 
 
 @app.cell
@@ -52,7 +58,7 @@ def _(Path, pl):
 
 
 @app.cell
-def _(df_raw, pl):
+def _(DataNormalizer, df_raw, pl):
     # ワンオン率・ボギーオン率計算関数
     def calculate_green_on_rates(row: dict) -> dict:
         """ワンオン率とボギーオン率を計算する
@@ -197,9 +203,31 @@ def _(df_raw, pl):
 
         return result
 
+    # ノーマライザーのインスタンス作成
+    normalizer = DataNormalizer()
+
     # データ前処理
     df = (
         df_raw
+        # データ正規化（ゴルフ場名、都道府県、コース名）
+        .with_columns(
+            [
+                pl.col("golf_place_name")
+                .map_elements(
+                    normalizer.normalize_golf_place_name, return_dtype=pl.String
+                )
+                .alias("golf_place_name"),
+                pl.col("prefecture")
+                .map_elements(normalizer.normalize_prefecture, return_dtype=pl.String)
+                .alias("prefecture"),
+                pl.col("course_former_half")
+                .map_elements(normalizer.clean_course_name, return_dtype=pl.String)
+                .alias("course_former_half"),
+                pl.col("course_latter_half")
+                .map_elements(normalizer.clean_course_name, return_dtype=pl.String)
+                .alias("course_latter_half"),
+            ]
+        )
         # 日付列を追加
         .with_columns(
             [
