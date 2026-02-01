@@ -96,6 +96,7 @@ uv run marimo run notebooks/score_analysis.py
 - **自動重複除外**: 同じ日付・ゴルフ場のデータは自動的に統合
 
 参考用ファイル:
+
 - `data/scores_20160312-20251214.json` - メインのスコアデータ
 - `data/golf_place_position_lat_lon.csv` - ゴルフ場位置情報
 
@@ -122,11 +123,17 @@ uv run ruff format .
 # リント
 uv run ruff check . --fix
 
+# Markdownリント
+uv run pre-commit run markdownlint --all-files
+
 # 型チェック
 uv run ty check src/
 
 # テスト
 uv run pytest
+
+# すべてのpre-commitチェックを実行
+uv run pre-commit run --all-files
 ```
 
 ### デバッグ

@@ -55,6 +55,7 @@ class ScoreData(BaseModel):
 ```
 
 **互換性の保証**:
+
 - `default_factory=list` により、既存データ(パー数・ヤード数なし)との後方互換性を維持
 - 既存のJSONデータ読み込み時は空リストとして扱われる
 
@@ -83,6 +84,7 @@ class ScoreDetailSelectors:
 ```
 
 **確認済み**: GDOサイトのHTML構造を確認し、以下のクラス名を使用することを確定
+
 - パー行: `tr.is-par`
 - ヤード行: `tr.is-yard`
 
@@ -117,6 +119,7 @@ def _scrape_score_detail(self, url: str) -> ScoreData:
 ```
 
 **実装のポイント**:
+
 - 既存の `_get_scores_from_rows()` メソッドをそのまま流用可能
 - パー行・ヤード行が存在しない場合は空リストを返す(既存データとの互換性)
 
@@ -465,6 +468,6 @@ def test_calculate_oneon_rate():
 ## 9. 参考資料
 
 - **既存設計書**: `docs/DESIGN.md`
-- **Polarsドキュメント**: https://docs.pola.rs/
-- **Altairドキュメント**: https://altair-viz.github.io/
-- **marimoドキュメント**: https://docs.marimo.io/
+- **Polarsドキュメント**: <https://docs.pola.rs/>
+- **Altairドキュメント**: <https://altair-viz.github.io/>
+- **marimoドキュメント**: <https://docs.marimo.io/>

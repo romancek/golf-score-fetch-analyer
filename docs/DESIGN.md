@@ -143,6 +143,7 @@ def create_browser(headless: bool = True, debug_mode: bool = False):
 ```
 
 **設計ポイント**:
+
 - コンテキストマネージャでリソースの確実な解放
 - デバッグモード時のトレース記録
 - User-Agentの設定でbot検知を回避
@@ -176,6 +177,7 @@ def login(page: Page, settings: Settings) -> bool:
 ```
 
 **設計ポイント**:
+
 - ログイン処理の独立モジュール化
 - モーダル対応など、ページ状態の変化に対応
 - ログイン成功/失敗の明確な戻り値
@@ -260,6 +262,7 @@ class ScoreScraper:
 ```
 
 **設計ポイント**:
+
 - クラスベースで状態管理を明確に
 - 各抽出処理を小さなメソッドに分割
 - エラー発生時のデバッグ情報自動保存
@@ -305,6 +308,7 @@ class ScoreData:
 ```
 
 **設計ポイント**:
+
 - 既存のJSONフォーマットとの完全互換性を維持
 - `dataclass`で明確な型定義
 - `to_dict()`でJSON変換を簡潔に
@@ -339,7 +343,7 @@ def save_scores_to_json(
     return filename
 ```
 
-### 3.8 __main__.py - CLIエントリーポイント
+### 3.8 **main**.py - CLIエントリーポイント
 
 **責務**: コマンドライン実行のエントリーポイント
 
@@ -567,7 +571,7 @@ dev = [
 ### フェーズ3: 出力・CLI ✅
 
 9. [x] output.py実装
-10. [x] __main__.py実装
+10. [x] **main**.py実装
 11. [x] README.md更新
 
 ### フェーズ4: 品質向上 🚧
@@ -599,6 +603,7 @@ uv run gdo-score --year 2025,2024
 ```
 
 **実装詳細**:
+
 - `scraper.scrape_all_scores()`が`target_years: list[int] | None`を受け取る
 - GDOデータは新しい順に並んでいるため、10件連続で対象年より古いスコアが見つかった時点で取得終了
 - 対象年より新しいスコアはスキップ（カウントしない）
@@ -608,6 +613,7 @@ uv run gdo-score --year 2025,2024
 **機能**: `data/`ディレクトリ内の複数JSONファイルを選択して統合分析
 
 **実装詳細**:
+
 - `mo.ui.multiselect`で複数ファイル選択
 - `pl.concat()`で垂直結合（`how="vertical_relaxed"`）
 - 重複レコード除外: `year`, `month`, `day`, `golf_place_name`の組み合わせで`unique()`
