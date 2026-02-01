@@ -48,8 +48,8 @@ def _(mo):
 @app.cell
 def _(Path, mo):
     # data/ディレクトリのJSONファイル一覧を取得
-    DATA_DIR = Path(__file__).parent.parent / "data"
-    json_files = sorted([f.name for f in DATA_DIR.glob("*.json")])
+    _DATA_DIR = Path(__file__).parent.parent / "data"
+    json_files = sorted([f.name for f in _DATA_DIR.glob("*.json")])
 
     if not json_files:
         mo.stop(True, mo.md("⚠️ data/ディレクトリにJSONファイルが見つかりません"))
@@ -81,12 +81,12 @@ def _(Path, file_selector, mo, pl):
     if not file_selector.value:
         mo.stop(True, mo.md("⚠️ データファイルを選択してください"))
 
-    DATA_DIR = Path(__file__).parent.parent / "data"
+    _DATA_DIR = Path(__file__).parent.parent / "data"
 
     # 複数ファイルを読み込んで結合
     dfs = []
     for filename in file_selector.value:
-        file_path = DATA_DIR / filename
+        file_path = _DATA_DIR / filename
         try:
             df_temp = pl.read_json(file_path)
             dfs.append(df_temp)
@@ -2035,7 +2035,7 @@ def _(df_with_par, pl):
 @app.cell
 def _(df_conditional_stats, mo):
     if df_conditional_stats is not None and len(df_conditional_stats) > 0:
-        mo.md(f"""
+        _output = mo.md(f"""
         ### 条件付きスコア率（平均）
 
         {mo.ui.table(df_conditional_stats)}
@@ -2043,7 +2043,10 @@ def _(df_conditional_stats, mo):
         ※ 各条件が発生したホールのみを対象に集計しています。
         """)
     else:
-        mo.md("パー数データが不足しているため、条件付きスコア率を計算できません。")
+        _output = mo.md(
+            "パー数データが不足しているため、条件付きスコア率を計算できません。"
+        )
+    _output
     return
 
 
