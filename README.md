@@ -53,7 +53,22 @@ uv run gdo-score
 
 # オプション指定
 uv run gdo-score --output ./my_output --headless false
+
+# 特定の年のデータだけ取得（単一年）
+uv run gdo-score --year 2024
+
+# 複数年を指定（カンマ区切り）
+uv run gdo-score --year 2025,2024
 ```
+
+### オプション
+
+| オプション | 説明 | デフォルト |
+|----------|------|----------|
+| `--output`, `-o` | 出力ディレクトリ | `./data` |
+| `--filename`, `-f` | 出力ファイル名 | `scores.json` |
+| `--headless` | ヘッドレスモード | `true` |
+| `--year`, `-y` | 取得対象年（複数年はカンマ区切り） | 全年 |
 
 ## 分析（marimoノートブック）
 
@@ -75,10 +90,14 @@ uv run marimo run notebooks/score_analysis.py
 
 ### 入力データ
 
-ノートブックは以下を参照します。
+ノートブックでは`data/`ディレクトリ内のJSONファイルを選択できます。
 
-- `data/scores_20160312-20251214.json`
-- `data/golf_place_position_lat_lon.csv`
+- **複数ファイル選択可能**: 異なる期間のデータを結合して分析
+- **自動重複除外**: 同じ日付・ゴルフ場のデータは自動的に統合
+
+参考用ファイル:
+- `data/scores_20160312-20251214.json` - メインのスコアデータ
+- `data/golf_place_position_lat_lon.csv` - ゴルフ場位置情報
 
 ### できること
 

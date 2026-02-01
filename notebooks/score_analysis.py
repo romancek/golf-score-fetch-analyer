@@ -46,29 +46,89 @@ def _(mo):
 
 
 @app.cell
-def _(Path, pl):
-    # データファイルのパス
-    DATA_FILE = Path(__file__).parent.parent / "data" / "scores_20160312-20251214.json"
+def _(Path, mo):
+    # data/ディレクトリのJSONファイル一覧を取得
+    DATA_DIR = Path(__file__).parent.parent / "data"
+    json_files = sorted([f.name for f in DATA_DIR.glob("*.json")])
 
-    # JSONデータを読み込み
-    df_raw = pl.read_json(DATA_FILE)
-    df_raw
+    if not json_files:
+        mo.stop(True, mo.md("⚠️ data/ディレクトリにJSONファイルが見つかりません"))
+
+    # デフォルトでscores_で始まる最新のファイルを選択
+    default_files = [
+        f for f in json_files if f.startswith("scores_") and not f.endswith(".bak")
+    ]
+    if not default_files:
+        default_files = json_files[:1]  # なければ最初のファイル
+
+    file_selector = mo.ui.multiselect(
+        options=json_files,
+        value=default_files,
+        label="データファイルを選択（複数選択可）",
+    )
+
+    mo.md(f"""
+    ## データファイル選択
+
+    {file_selector}
+    """)
+    return (file_selector,)
+
+
+@app.cell
+def _(Path, file_selector, mo, pl):
+    # 選択されたファイルを読み込み
+    if not file_selector.value:
+        mo.stop(True, mo.md("⚠️ データファイルを選択してください"))
+
+    DATA_DIR = Path(__file__).parent.parent / "data"
+
+    # 複数ファイルを読み込んで結合
+    dfs = []
+    for filename in file_selector.value:
+        file_path = DATA_DIR / filename
+        try:
+            df_temp = pl.read_json(file_path)
+            dfs.append(df_temp)
+        except Exception as e:
+            mo.output.append(mo.md(f"⚠️ {filename}の読み込みに失敗: {e}"))
+
+    if not dfs:
+        mo.stop(True, mo.md("⚠️ 有効なデータファイルがありません"))
+
+    # 複数のDataFrameを結合
+    if len(dfs) == 1:
+        df_raw = dfs[0]
+    else:
+        df_raw = pl.concat(dfs, how="vertical_relaxed")
+        # 重複を削除（同じ日付・ゴルフ場のラウンドは1つに）
+        df_raw = df_raw.unique(
+            subset=["year", "month", "day", "golf_place_name"], keep="first"
+        )
+
+    mo.md(f"""
+    ### 読み込み完了
+
+    - **選択ファイル数**: {len(file_selector.value)}
+    - **総レコード数**: {len(df_raw)}
+    """)
     return (df_raw,)
 
 
 @app.cell
 def _(DataNormalizer, df_raw, pl):
-    # ワンオン率・ボギーオン率計算関数
+    # パーオン率・ボギーオン率・ワンオン率計算関数
     def calculate_green_on_rates(row: dict) -> dict:
-        """ワンオン率とボギーオン率を計算する
+        """パーオン率、ボギーオン率、ワンオン率を計算する
 
         Args:
             row: hall_scores, putt_scores, par_scores を含む辞書
 
         Returns:
             dict: {
-                "oneon_rate": float | None,
-                "bogey_on_rate": float | None
+                "par_on_rate": float | None,  # パー-2打でグリーンオン
+                "bogey_on_rate": float | None,  # パー打でグリーンオン
+                "one_on_rate": float | None  # パー3で1打でグリーンオン
             }
         """
         hall_scores = row.get("hall_scores", [])
@@ -77,11 +137,13 @@ def _(DataNormalizer, df_raw, pl):
 
         # パー数が存在しない場合はNoneを返す
         if not par_scores or len(par_scores) == 0:
-            return {"oneon_rate": None, "bogey_on_rate": None}
+            return {"par_on_rate": None, "bogey_on_rate": None, "one_on_rate": None}
 
-        oneon_count = 0
+        par_on_count = 0
         bogey_on_count = 0
+        one_on_count = 0
         valid_holes = 0
+        par3_holes = 0
 
         for i in range(min(len(hall_scores), len(putt_scores), len(par_scores))):
             score_str = hall_scores[i]
@@ -102,23 +164,32 @@ def _(DataNormalizer, df_raw, pl):
                 # グリーンオンまでの打数 = スコア - パット数
                 shots_to_green = score - putt
 
-                # ワンオン判定: パー - 1打以内でグリーンに乗せる
-                if shots_to_green <= (par - 1):
-                    oneon_count += 1
+                # パーオン判定: パー - 2打でグリーンに乗せる
+                if shots_to_green <= (par - 2):
+                    par_on_count += 1
 
                 # ボギーオン判定: パー打でグリーンに乗せる
                 if shots_to_green <= par:
                     bogey_on_count += 1
 
+                # ワンオン判定: パー3で1打でグリーンに乗せる
+                if par == 3:
+                    par3_holes += 1
+                    if shots_to_green == 1:
+                        one_on_count += 1
+
             except (ValueError, TypeError):
                 continue
 
         if valid_holes == 0:
-            return {"oneon_rate": None, "bogey_on_rate": None}
+            return {"par_on_rate": None, "bogey_on_rate": None, "one_on_rate": None}
+
+        one_on_rate = one_on_count / par3_holes if par3_holes > 0 else None
 
         return {
-            "oneon_rate": oneon_count / valid_holes,
+            "par_on_rate": par_on_count / valid_holes,
             "bogey_on_rate": bogey_on_count / valid_holes,
+            "one_on_rate": one_on_rate,
         }
 
     # 条件付きスコア率計算関数
@@ -299,7 +370,11 @@ def _(DataNormalizer, df_raw, pl):
                 .map_elements(
                     calculate_green_on_rates,
                     return_dtype=pl.Struct(
-                        {"oneon_rate": pl.Float64, "bogey_on_rate": pl.Float64}
+                        {
+                            "par_on_rate": pl.Float64,
+                            "bogey_on_rate": pl.Float64,
+                            "one_on_rate": pl.Float64,
+                        }
                     ),
                 )
                 .alias("green_on_rates")
@@ -1289,40 +1364,41 @@ def _(fwk_regression):
 # ------------------------------------------------------------
 @app.cell
 def _(alt, df_filtered, mo, pl):
-    # ワンオン率を計算(is-okの割合)
-    df_paron = (
+    # ワンオン率を計算(GDOのoneonsフィールドのis-ok割合)
+    # GDOのoneonsはワンオンを示すフィールド
+    df_oneon = (
         df_filtered.with_columns(
             [
                 pl.col("oneons")
                 .list.eval(pl.element().eq("is-ok").cast(pl.Int32))
                 .list.sum()
-                .alias("paron_count"),
+                .alias("oneon_count"),
                 pl.col("oneons")
                 .list.eval((pl.element() != "-").cast(pl.Int32))
                 .list.sum()
-                .alias("paron_total"),
+                .alias("oneon_total"),
             ]
         )
         .with_columns(
             [
-                (pl.col("paron_count") / pl.col("paron_total") * 100)
+                (pl.col("oneon_count") / pl.col("oneon_total") * 100)
                 .round(1)
-                .alias("paron_rate")
+                .alias("oneon_rate")
             ]
         )
-        .filter(pl.col("paron_total") > 0)
+        .filter(pl.col("oneon_total") > 0)
     )
 
-    paron_scatter = (
-        alt.Chart(df_paron)
+    oneon_scatter = (
+        alt.Chart(df_oneon)
         .mark_circle(size=80, opacity=0.6)
         .encode(
-            x=alt.X("paron_rate:Q", title="ワンオン率(%)"),
+            x=alt.X("oneon_rate:Q", title="ワンオン率(%)"),
             y=alt.Y("total_score:Q", title="スコア", scale=alt.Scale(zero=False)),
             tooltip=[
                 alt.Tooltip("date:T", title="日付"),
                 alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
-                alt.Tooltip("paron_rate:Q", title="ワンオン率(%)"),
+                alt.Tooltip("oneon_rate:Q", title="ワンオン率(%)"),
                 alt.Tooltip("total_score:Q", title="スコア"),
             ],
             color=alt.value("#4169E1"),
@@ -1331,23 +1407,23 @@ def _(alt, df_filtered, mo, pl):
         .interactive()
     )
 
-    paron_regression = paron_scatter + paron_scatter.transform_regression(
-        "paron_rate", "total_score"
+    oneon_regression = oneon_scatter + oneon_scatter.transform_regression(
+        "oneon_rate", "total_score"
     ).mark_line(color="red", strokeDash=[5, 5])
 
-    paron_corr = df_paron.select(pl.corr("paron_rate", "total_score")).item()
+    oneon_corr = df_oneon.select(pl.corr("oneon_rate", "total_score")).item()
 
     mo.md(f"""
     ## 4. ワンオン率とスコア相関
 
-    相関係数: **{paron_corr:.3f}**
+    相関係数: **{oneon_corr:.3f}**
     """)
-    return (paron_regression,)
+    return (oneon_regression,)
 
 
 @app.cell
-def _(paron_regression):
-    paron_regression
+def _(oneon_regression):
+    oneon_regression
     return
 
 
@@ -1725,9 +1801,9 @@ def _(daytype_stats, mo, weekday_stats):
 @app.cell
 def _(mo):
     mo.md("""
-    ## グリーンオン率分析
+    ## パーオン率分析
 
-    パー数データがあるラウンドについて、ワンオン率とボギーオン率を分析します。
+    パー数データがあるラウンドについて、パーオン率とボギーオン率を分析します。
     """)
     return
 
@@ -1735,31 +1811,34 @@ def _(mo):
 @app.cell
 def _(df_filtered, pl):
     # パー数データが存在するラウンドのみフィルタ
-    df_with_par = df_filtered.filter(pl.col("oneon_rate").is_not_null())
+    df_with_par = df_filtered.filter(pl.col("par_on_rate").is_not_null())
     return (df_with_par,)
 
 
 @app.cell
-def _(alt, df_with_par):
-    # ワンオン率の推移
-    chart_oneon = (
+def _(alt, df_with_par, pl):
+    # パーオン率の推移
+    chart_par_on = (
         alt.Chart(df_with_par)
         .mark_line(point=True)
         .encode(
             x=alt.X("date:T", title="日付"),
             y=alt.Y(
-                "oneon_rate:Q",
-                title="ワンオン率",
+                "par_on_rate:Q",
+                title="パーオン率",
                 scale=alt.Scale(domain=[0, 1]),
                 axis=alt.Axis(format="%"),
             ),
             tooltip=[
                 alt.Tooltip("date:T", title="日付"),
-                alt.Tooltip("oneon_rate:Q", format=".1%", title="ワンオン率"),
+                alt.Tooltip("par_on_rate:Q", format=".1%", title="パーオン率"),
+                alt.Tooltip("total_score:Q", title="スコア"),
                 alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
             ],
         )
-        .properties(width=800, height=300, title="ワンオン率の推移")
+        .properties(
+            width=800, height=300, title="パーオン率の推移(パー-2打でグリーンオン)"
+        )
     )
 
     # ボギーオン率の推移
@@ -1777,14 +1856,43 @@ def _(alt, df_with_par):
             tooltip=[
                 alt.Tooltip("date:T", title="日付"),
                 alt.Tooltip("bogey_on_rate:Q", format=".1%", title="ボギーオン率"),
+                alt.Tooltip("total_score:Q", title="スコア"),
                 alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
             ],
         )
-        .properties(width=800, height=300, title="ボギーオン率の推移")
+        .properties(
+            width=800, height=300, title="ボギーオン率の推移(パー打でグリーンオン)"
+        )
     )
 
-    chart_oneon, chart_bogey_on
-    return chart_bogey_on, chart_oneon
+    # ワンオン率の推移(パー3のみ)
+    df_with_one_on = df_with_par.filter(pl.col("one_on_rate").is_not_null())
+
+    chart_one_on = (
+        alt.Chart(df_with_one_on)
+        .mark_line(point=True, color="green")
+        .encode(
+            x=alt.X("date:T", title="日付"),
+            y=alt.Y(
+                "one_on_rate:Q",
+                title="ワンオン率",
+                scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(format="%"),
+            ),
+            tooltip=[
+                alt.Tooltip("date:T", title="日付"),
+                alt.Tooltip("one_on_rate:Q", format=".1%", title="ワンオン率"),
+                alt.Tooltip("total_score:Q", title="スコア"),
+                alt.Tooltip("golf_place_name:N", title="ゴルフ場"),
+            ],
+        )
+        .properties(
+            width=800, height=300, title="ワンオン率の推移(パー3で1打でグリーンオン)"
+        )
+    )
+
+    chart_par_on, chart_bogey_on, chart_one_on
+    return chart_bogey_on, chart_one_on, chart_par_on, df_with_one_on
 
 
 @app.cell

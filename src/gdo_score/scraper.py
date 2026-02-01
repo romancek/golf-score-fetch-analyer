@@ -89,8 +89,13 @@ class ScoreScraper:
             self.settings.max_consecutive_errors,
         )
 
-    def scrape_all_scores(self) -> list[ScoreData]:
+    def scrape_all_scores(
+        self, target_years: list[int] | None = None
+    ) -> list[ScoreData]:
         """すべてのスコアを取得する
+
+        Args:
+            target_years: 取得対象の年のリスト。Noneの場合は全年のデータを取得
 
         Returns:
             list[ScoreData]: スコアデータのリスト
@@ -100,6 +105,7 @@ class ScoreScraper:
         """
         scores: list[ScoreData] = []
         page_num = 1
+        older_year_count = 0  # 対象年より古いスコアが連続で見つかった回数
 
         while True:
             logger.info("スコア一覧ページ %d を取得中...", page_num)
@@ -141,6 +147,43 @@ class ScoreScraper:
 
                 try:
                     score = self._scrape_score_detail(link)
+
+                    # 年でフィルタリング
+                    if target_years is not None:
+                        score_year = int(score.year)
+                        min_target_year = min(target_years)
+
+                        if score_year not in target_years:
+                            # 対象年より古い場合
+                            if score_year < min_target_year:
+                                older_year_count += 1
+                                logger.debug(
+                                    "対象年より古いスコアをスキップ: %s/%s/%s (対象年: %s)",
+                                    score.year,
+                                    score.month,
+                                    score.day,
+                                    ", ".join(map(str, target_years)),
+                                )
+                                # 連続して10件対象年より古いスコアが見つかったら終了
+                                if older_year_count >= 10:
+                                    logger.info(
+                                        "対象年(%s)より古いスコアが連続して見つかったため終了します",
+                                        ", ".join(map(str, target_years)),
+                                    )
+                                    break
+                            else:
+                                # 対象年より新しい場合はスキップするがカウントしない
+                                logger.debug(
+                                    "対象年外のスコアをスキップ: %s/%s/%s (対象年: %s)",
+                                    score.year,
+                                    score.month,
+                                    score.day,
+                                    ", ".join(map(str, target_years)),
+                                )
+                            continue
+                        else:
+                            older_year_count = 0  # 対象年のスコアが見つかったらリセット
+
                     scores.append(score)
                     self._reset_consecutive_errors()
                     logger.info(
@@ -161,6 +204,10 @@ class ScoreScraper:
 
                     # 連続エラー回数チェック
                     self._check_consecutive_errors()
+
+            # 年フィルタリング時に対象年より古いスコアが連続したらループ終了
+            if target_years is not None and older_year_count >= 10:
+                break
 
             page_num += 1
 

@@ -80,6 +80,14 @@ def parse_args() -> argparse.Namespace:
         help="出力ファイル名(省略時は自動生成)",
     )
 
+    parser.add_argument(
+        "--year",
+        "-y",
+        type=str,
+        default=None,
+        help="取得する年を指定(例: 2024 または 2025,2024)。カンマ区切りで複数年指定可能。省略時は全年のデータを取得",
+    )
+
     return parser.parse_args()
 
 
@@ -153,9 +161,21 @@ def main() -> int:
             login(page, settings)
 
             # スコア取得
-            logger.info("スコア情報を取得します...")
+            target_years = None
+            if args.year:
+                try:
+                    target_years = [int(y.strip()) for y in args.year.split(",")]
+                    logger.info(
+                        "スコア情報を取得します(対象年: %s)...",
+                        ", ".join(map(str, target_years)),
+                    )
+                except ValueError:
+                    logger.error("年の指定が不正です: %s", args.year)
+                    return 1
+            else:
+                logger.info("スコア情報を取得します...")
             scraper = ScoreScraper(page, settings)
-            scores = scraper.scrape_all_scores()
+            scores = scraper.scrape_all_scores(target_years=target_years)
 
             if not scores:
                 logger.warning("取得できるスコアがありませんでした")
