@@ -1460,17 +1460,30 @@ def _(alt, df_filtered, mo, pl):
         )
     )
 
+    max_first = df_half.select(pl.col("first_half").max()).item()
+    max_second = df_half.select(pl.col("second_half").max()).item()
+    max_half = max(max_first or 0, max_second or 0)
+    axis_max = max_half if max_half > 0 else 80
+
     # 前半 vs 後半 散布図
     half_scatter = (
         alt.Chart(df_half)
         .mark_circle(size=80, opacity=0.6)
         .encode(
-            x=alt.X("first_half:Q", title="前半スコア"),
-            y=alt.Y("second_half:Q", title="後半スコア"),
+            x=alt.X(
+                "second_half:Q",
+                title="後半スコア",
+                scale=alt.Scale(domain=[30, axis_max]),
+            ),
+            y=alt.Y(
+                "first_half:Q",
+                title="前半スコア",
+                scale=alt.Scale(domain=[30, axis_max]),
+            ),
             color=alt.Color(
                 "half_diff:Q",
                 title="前半-後半",
-                scale=alt.Scale(scheme="redblue", domainMid=0, reverse=True),
+                scale=alt.Scale(scheme="redblue", domainMid=0),
             ),
             tooltip=[
                 alt.Tooltip("date:T", title="日付"),
@@ -1489,7 +1502,7 @@ def _(alt, df_filtered, mo, pl):
     )
 
     # 対角線(前半=後半)を追加
-    line_df = pl.DataFrame({"x": [40, 70], "y": [40, 70]})
+    line_df = pl.DataFrame({"x": [30, 80], "y": [30, 80]})
     diagonal = (
         alt.Chart(line_df)
         .mark_line(color="gray", strokeDash=[5, 5], opacity=0.5)
@@ -1839,6 +1852,7 @@ def _(alt, df_with_par, pl):
         .properties(
             width=800, height=300, title="パーオン率の推移(パー-2打でグリーンオン)"
         )
+        .interactive()
     )
 
     # ボギーオン率の推移
@@ -1863,6 +1877,7 @@ def _(alt, df_with_par, pl):
         .properties(
             width=800, height=300, title="ボギーオン率の推移(パー打でグリーンオン)"
         )
+        .interactive()
     )
 
     # ワンオン率の推移(パー3のみ)
@@ -1889,6 +1904,7 @@ def _(alt, df_with_par, pl):
         .properties(
             width=800, height=300, title="ワンオン率の推移(パー3で1打でグリーンオン)"
         )
+        .interactive()
     )
 
     chart_par_on, chart_bogey_on, chart_one_on
@@ -1971,6 +1987,7 @@ def _(alt, penalty_long):
             ],
         )
         .properties(width=800, height=400, title="ペナルティ発生率の推移")
+        .interactive()
     )
 
     chart_penalty
