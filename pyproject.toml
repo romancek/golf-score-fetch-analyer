@@ -58,6 +58,7 @@ dev = [
 target-version = "py314"
 line-length = 88
 src = ["src", "tests", "notebooks"]
+exclude = [".github/skills"]
 
 [tool.ruff.lint]
 select = [
