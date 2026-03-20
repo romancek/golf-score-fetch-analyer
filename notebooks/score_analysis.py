@@ -610,15 +610,81 @@ def _(alt, df_filtered, mo, pl):
         .sort("year_int")
     )
 
+    # Y軸の最小値を取得してラベル位置を決定
+    _y_min = df_filtered.select(pl.col("total_score").min()).item()
+    _y_pos = _y_min - 3
+
+    # 年別ラウンド数テキストラベル（箱ひげ図の下部に表示）
+    _rounds_df = yearly_rounds.with_columns(
+        pl.col("year_int").cast(pl.String).alias("year"),
+        pl.lit(_y_pos).alias("y_pos"),
+        pl.lit(_y_pos + 1.5).alias("y_top"),
+        pl.lit(_y_pos - 1.5).alias("y_bottom"),
+        pl.col("rounds").cast(pl.String).alias("rounds_label"),
+    )
+
+    # 薄いグレー塗りつぶしの四角背景（テキストと上下中央揃え）
+    rounds_bg = (
+        alt.Chart(_rounds_df)
+        .mark_rect(fill="#e0e0e0", cornerRadius=3)
+        .encode(
+            x=alt.X("year:O"),
+            y=alt.Y("y_top:Q"),
+            y2="y_bottom:Q",
+        )
+    )
+
+    rounds_text = (
+        alt.Chart(_rounds_df)
+        .mark_text(
+            fontSize=11,
+            align="center",
+            baseline="middle",
+        )
+        .encode(
+            x=alt.X("year:O"),
+            y=alt.Y("y_pos:Q"),
+            text="rounds_label:N",
+        )
+    )
+
+    # 注釈: 最後の年の右側に「← 年間ラウンド数」を表示
+    _last_year = str(yearly_rounds.select("year_int").max().item())
+    _annotation_df = pl.DataFrame(
+        {
+            "year": [_last_year],
+            "y_pos": [_y_pos],
+        }
+    )
+
+    rounds_annotation = (
+        alt.Chart(_annotation_df)
+        .mark_text(
+            fontSize=10,
+            align="left",
+            baseline="middle",
+            dx=30,
+        )
+        .encode(
+            x=alt.X("year:O"),
+            y=alt.Y("y_pos:Q"),
+            text=alt.value("← 年間ラウンド数"),
+        )
+    )
+
+    boxplot_with_rounds = (
+        boxplot + rounds_bg + rounds_text + rounds_annotation
+    ).properties(title="年別スコア分布", width=700, height=300)
+
     mo.md("""
     ## 年別スコア分布
     """)
-    return boxplot, yearly_rounds
+    return boxplot_with_rounds, yearly_rounds
 
 
 @app.cell
-def _(boxplot, mo):
-    mo.ui.altair_chart(boxplot)
+def _(boxplot_with_rounds, mo):
+    mo.ui.altair_chart(boxplot_with_rounds)
     return
 
 
