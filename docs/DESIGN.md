@@ -56,9 +56,73 @@ get-gdo-score/
 
 ---
 
-## 3. モジュール設計
+## 3. システム全体像
 
-### 3.1 config.py - 設定管理
+以下の図は、スコア取得（データ収集）とスコア分析（可視化）の仕組み、およびデータの流れを示しています。
+
+```mermaid
+flowchart TB
+    subgraph acquisition["スコア取得 (CLI)"]
+        direction TB
+        CLI["__main__.py / cli.py\nCLIエントリーポイント"]
+        CONFIG["config.py\n設定管理(.env)"]
+        BROWSER["browser.py\nPlaywrightブラウザ管理"]
+        AUTH["auth.py\nGDOログイン処理"]
+        SCRAPER["scraper.py\nスクレイピング処理"]
+        SELECTORS["selectors.py\nCSSセレクタ定義"]
+        MODELS["models.py\nデータモデル"]
+        OUTPUT["output.py\nJSON出力処理"]
+
+        CLI --> CONFIG
+        CLI --> BROWSER
+        BROWSER --> AUTH
+        AUTH --> SCRAPER
+        SCRAPER --> SELECTORS
+        SCRAPER --> MODELS
+        MODELS --> OUTPUT
+    end
+
+    subgraph external["外部"]
+        GDO["GDOスコアサイト\nscore.golfdigest.co.jp"]
+    end
+
+    subgraph datastore["data/"]
+        direction TB
+        SCORES_JSON["scores_YYYYMMDD-YYYYMMDD.json\nスコアデータ"]
+        MAPPING["マッピングファイル\n(ゴルフ場名/都道府県/同伴者)"]
+        POSITION["golf_place_position_lat_lon.csv\nゴルフ場位置情報"]
+    end
+
+    subgraph analysis["スコア分析 (marimo ノートブック)"]
+        direction TB
+        NOTEBOOK["notebooks/score_analysis.py"]
+        NORMALIZER["normalizer.py\nデータ正規化"]
+        POLARS["Polars\nデータ加工・集計"]
+        ALTAIR["Altair\nグラフ・地図可視化"]
+
+        NOTEBOOK --> NORMALIZER
+        NOTEBOOK --> POLARS
+        POLARS --> ALTAIR
+    end
+
+    BROWSER ---|"Playwright"| GDO
+    OUTPUT -->|"JSON出力"| SCORES_JSON
+    SCORES_JSON -->|"読み込み"| NOTEBOOK
+    MAPPING -->|"名寄せ・正規化"| NORMALIZER
+    POSITION -->|"地図プロット"| NOTEBOOK
+```
+
+**データの流れ**:
+
+1. **スコア取得**: CLI実行 → Playwrightでブラウザ起動 → GDOサイトにログイン → スコアページをスクレイピング → JSON形式で `data/` に保存
+2. **スコア分析**: marimoノートブックが `data/` のJSONを読み込み → `normalizer.py` でゴルフ場名・都道府県を正規化 → Polarsで集計 → Altairで可視化（スコア推移、箱ひげ図、地図など）
+3. **共有データ**: `data/` ディレクトリがスコア取得と分析の接点。マッピングファイルは名寄せに、位置情報CSVは地図プロットに使用
+
+---
+
+## 4. モジュール設計
+
+### 4.1 config.py - 設定管理
 
 **責務**: 環境変数からの設定読み込み、設定値のバリデーション
 
@@ -82,7 +146,7 @@ class Settings(BaseSettings):
 - `.env`ファイルから認証情報を読み込み（ハードコード禁止）
 - デバッグモードフラグで詳細ログやスクリーンショット取得を制御
 
-### 3.2 selectors.py - セレクタ一元管理
+### 4.2 selectors.py - セレクタ一元管理
 
 **責務**: CSSセレクタの定義と管理
 
@@ -113,7 +177,7 @@ class Selectors:
 - `frozen=True`で不変性を保証
 - 代替セレクタ（`_ALT`）を用意してページ構造の変化に対応
 
-### 3.3 browser.py - ブラウザ管理
+### 4.3 browser.py - ブラウザ管理
 
 **責務**: Playwrightブラウザのライフサイクル管理
 
@@ -148,7 +212,7 @@ def create_browser(headless: bool = True, debug_mode: bool = False):
 - デバッグモード時のトレース記録
 - User-Agentの設定でbot検知を回避
 
-### 3.4 auth.py - 認証処理
+### 4.4 auth.py - 認証処理
 
 **責務**: GDOサイトへのログイン処理
 
@@ -182,7 +246,7 @@ def login(page: Page, settings: Settings) -> bool:
 - モーダル対応など、ページ状態の変化に対応
 - ログイン成功/失敗の明確な戻り値
 
-### 3.5 scraper.py - スクレイピング処理
+### 4.5 scraper.py - スクレイピング処理
 
 **責務**: スコアページからのデータ抽出
 
@@ -269,7 +333,7 @@ class ScoreScraper:
 - **年指定フィルタリング**: 複数年指定可能（カンマ区切り）
 - **効率的なページング**: GDOのデータが新しい順に並んでいることを利用し、10件連続で対象年より古いスコアが見つかった場合に終了
 
-### 3.6 models.py - データモデル
+### 4.6 models.py - データモデル
 
 **責務**: スコアデータの型定義とバリデーション
 
@@ -313,7 +377,7 @@ class ScoreData:
 - `dataclass`で明確な型定義
 - `to_dict()`でJSON変換を簡潔に
 
-### 3.7 output.py - 出力処理
+### 4.7 output.py - 出力処理
 
 **責務**: JSON形式でのファイル出力
 
@@ -343,7 +407,7 @@ def save_scores_to_json(
     return filename
 ```
 
-### 3.8 **main**.py - CLIエントリーポイント
+### 4.8 **main**.py - CLIエントリーポイント
 
 **責務**: コマンドライン実行のエントリーポイント
 
@@ -386,9 +450,9 @@ if __name__ == "__main__":
 
 ---
 
-## 4. デバッグ・保守性戦略
+## 5. デバッグ・保守性戦略
 
-### 4.1 Playwrightデバッグ機能の活用
+### 5.1 Playwrightデバッグ機能の活用
 
 | 機能 | 用途 | 使い方 |
 | ------ | ------ | -------- |
@@ -398,7 +462,7 @@ if __name__ == "__main__":
 | **Codegen** | セレクタの自動生成 | `playwright codegen URL` |
 | **Inspector** | ステップ実行 | `PWDEBUG=1 python ...` |
 
-### 4.2 自動デバッグ情報収集
+### 5.2 自動デバッグ情報収集
 
 ```python
 def _save_debug_info(self, context: str) -> None:
@@ -418,7 +482,7 @@ def _save_debug_info(self, context: str) -> None:
         f.write(self.page.content())
 ```
 
-### 4.3 セレクタ自動修復支援
+### 5.3 セレクタ自動修復支援
 
 ```python
 # selectors.py に代替セレクタパターンを定義
@@ -449,9 +513,9 @@ def get_element_with_fallback(page: Page, selector_key: str):
 
 ---
 
-## 5. エラーハンドリング
+## 6. エラーハンドリング
 
-### 5.1 カスタム例外
+### 6.1 カスタム例外
 
 ```python
 class GdoScoreError(Exception):
@@ -474,7 +538,7 @@ class ScrapingError(GdoScoreError):
     pass
 ```
 
-### 5.2 リトライ機構
+### 6.2 リトライ機構
 
 ```python
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -491,9 +555,9 @@ def fetch_score_page(page: Page, page_num: int) -> None:
 
 ---
 
-## 6. テスト戦略
+## 7. テスト戦略
 
-### 6.1 テストの種類
+### 7.1 テストの種類
 
 | 種類 | 対象 | 実行タイミング |
 | ------ | ------ | ---------------- |
@@ -501,7 +565,7 @@ def fetch_score_page(page: Page, page_num: int) -> None:
 | 統合テスト | scraper（モック使用） | CI |
 | E2Eテスト | 全体フロー | 手動/定期 |
 
-### 6.2 モックを使用したスクレイパーテスト
+### 7.2 モックを使用したスクレイパーテスト
 
 ```python
 # tests/test_scraper.py
@@ -523,9 +587,9 @@ def test_extract_date(mock_page):
 
 ---
 
-## 7. 依存パッケージ
+## 8. 依存パッケージ
 
-### 7.1 本番依存
+### 8.1 本番依存
 
 ```toml
 [project]
@@ -537,7 +601,7 @@ dependencies = [
 ]
 ```
 
-### 7.2 開発依存
+### 8.2 開発依存
 
 ```toml
 [dependency-groups]
@@ -552,7 +616,7 @@ dev = [
 
 ---
 
-## 8. 実装計画
+## 9. 実装計画
 
 ### フェーズ1: 基盤構築 ✅
 
@@ -588,9 +652,9 @@ dev = [
 
 ---
 
-## 9. 拡張機能
+## 10. 拡張機能
 
-### 9.1 年指定フィルタリング
+### 10.1 年指定フィルタリング
 
 **機能**: CLI実行時に特定の年のデータのみを取得
 
@@ -608,7 +672,7 @@ uv run gdo-score --year 2025,2024
 - GDOデータは新しい順に並んでいるため、10件連続で対象年より古いスコアが見つかった時点で取得終了
 - 対象年より新しいスコアはスキップ（カウントしない）
 
-### 9.2 ノートブックの複数ファイル対応
+### 10.2 ノートブックの複数ファイル対応
 
 **機能**: `data/`ディレクトリ内の複数JSONファイルを選択して統合分析
 
@@ -621,7 +685,7 @@ uv run gdo-score --year 2025,2024
 
 ---
 
-## 10. 参考資料
+## 11. 参考資料
 
 - [Playwright Python公式ドキュメント](https://playwright.dev/python/)
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
