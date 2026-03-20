@@ -1549,7 +1549,11 @@ def _(alt, df_filtered, mo, pl):
             color=alt.Color(
                 "half_diff:Q",
                 title="前半-後半",
-                scale=alt.Scale(scheme="redblue", domainMid=0),
+                scale=alt.Scale(
+                    domain=[-20, 20],
+                    domainMid=0,
+                    range=["#1f77b4", "#e0e0e0", "#d62728"],
+                ),
             ),
             tooltip=[
                 alt.Tooltip("date:T", title="日付"),
@@ -1746,18 +1750,27 @@ def _(accompany_stats, mo):
 
 
 @app.cell
-def _(alt, df_accompany, mo):
+def _(alt, df_accompany, mo, pl):
     if df_accompany is not None and len(df_accompany) > 0:
+        _df_acc = df_accompany.with_columns(
+            pl.when(pl.col("diff") < 0)
+            .then(pl.lit("勝ち"))
+            .otherwise(pl.lit("負け"))
+            .alias("result")
+        )
         accompany_hist = (
-            alt.Chart(df_accompany)
+            alt.Chart(_df_acc)
             .mark_bar()
             .encode(
                 x=alt.X("diff:Q", bin=alt.Bin(step=5), title="スコア差(自分-同伴者)"),
                 y=alt.Y("count()", title="頻度"),
-                color=alt.condition(
-                    alt.datum.diff < 0,
-                    alt.value("#2E8B57"),
-                    alt.value("#DC143C"),
+                color=alt.Color(
+                    "result:N",
+                    title="結果",
+                    scale=alt.Scale(
+                        domain=["勝ち", "負け"],
+                        range=["#2E8B57", "#DC143C"],
+                    ),
                 ),
             )
             .properties(
@@ -2111,7 +2124,6 @@ def _(df_with_par, pl):
     df_conditional_stats = (
         pl.DataFrame(conditional_stats) if conditional_stats else None
     )
-    df_conditional_stats
     return (conditional_stats, df_conditional_stats)
 
 
